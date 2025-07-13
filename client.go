@@ -22,8 +22,8 @@ const (
 	// Enviar pings al cliente con este período. Debe ser menor que pongWait
 	pingPeriod = (pongWait * 9) / 10
 
-	// Tamaño máximo del mensaje permitido del cliente
-	maxMessageSize = 10 * 1024 * 1024 // Aumentado a 10MB para imágenes
+	// Tamaño máximo del mensaje permitido del cliente (aumentado para imágenes)
+	maxMessageSize = 10 * 1024 * 1024 // 10MB
 )
 
 var (
