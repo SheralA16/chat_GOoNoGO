@@ -9,7 +9,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- Bootstrap Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
-    <!-- Custom CSS para gradientes y efectos especiales -->
+    <!-- Custom CSS -->
     <style>
         .gradient-bg {
             background: linear-gradient(135deg, #198754 0%, #20c997 100%);
@@ -82,6 +82,54 @@
             font-size: 0.9rem;
             font-weight: 600;
         }
+
+        /* Estilos para imágenes */
+        .message-image {
+            max-width: 300px;
+            max-height: 200px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .message-image:hover {
+            transform: scale(1.05);
+        }
+
+        .image-upload-area {
+            border: 2px dashed #198754;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .image-upload-area:hover {
+            background-color: rgba(25, 135, 84, 0.1);
+            border-color: #20c997;
+        }
+
+        .image-upload-area.dragover {
+            background-color: rgba(25, 135, 84, 0.2);
+            border-color: #20c997;
+            transform: scale(1.02);
+        }
+
+        .image-preview {
+            max-width: 100px;
+            max-height: 100px;
+            border-radius: 4px;
+        }
+
+        .upload-progress {
+            transition: width 0.3s ease;
+        }
+
+        .image-info {
+            font-size: 0.8rem;
+            color: #6c757d;
+        }
     </style>
 </head>
 
@@ -122,7 +170,7 @@
                                 <div class="text-center text-muted">
                                     <i class="bi bi-chat-dots fs-1"></i>
                                     <p>No hay mensajes aún. ¡Sé el primero en escribir!</p>
-                                    <small>Chat desarrollado por JUNIOR_ALVINES & SheralA16</small>
+                                    <small>Chat con soporte para imágenes - JUNIOR_ALVINES & SheralA16</small>
                                 </div>
                             </div>
 
@@ -148,20 +196,83 @@
                                 </div>
 
                                 <!-- Sección de Mensajes -->
-                                <div class="row g-2 align-items-center d-none" id="messageSection">
-                                    <div class="col">
-                                        <input type="text" class="form-control" id="messageInput"
-                                            placeholder="Escribe tu mensaje..." maxlength="500">
+                                <div class="d-none" id="messageSection">
+                                    <!-- Área de subida de imágenes -->
+                                    <div class="mb-3 d-none" id="imageUploadSection">
+                                        <div class="card">
+                                            <div class="card-header d-flex justify-content-between align-items-center">
+                                                <span><i class="bi bi-image"></i> Enviar Imagen</span>
+                                                <button class="btn btn-sm btn-outline-secondary" id="cancelImageBtn">
+                                                    <i class="bi bi-x"></i> Cancelar
+                                                </button>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="image-upload-area" id="imageUploadArea">
+                                                    <i class="bi bi-cloud-upload fs-1 text-success"></i>
+                                                    <p class="mt-2 mb-1">Arrastra una imagen aquí o haz clic para
+                                                        seleccionar</p>
+                                                    <small class="text-muted">Formatos soportados: JPEG, PNG, GIF, WebP
+                                                        (máx. 5MB)</small>
+                                                    <input type="file" id="imageFileInput" accept="image/*"
+                                                        class="d-none">
+                                                </div>
+
+                                                <div class="mt-3 d-none" id="imagePreviewSection">
+                                                    <div class="row align-items-center">
+                                                        <div class="col-auto">
+                                                            <img id="imagePreview" class="image-preview"
+                                                                alt="Vista previa">
+                                                        </div>
+                                                        <div class="col">
+                                                            <div class="image-info">
+                                                                <div><strong id="imageName"></strong></div>
+                                                                <div class="text-muted" id="imageSize"></div>
+                                                            </div>
+                                                            <input type="text" class="form-control form-control-sm mt-2"
+                                                                id="imageCaption" placeholder="Descripción opcional..."
+                                                                maxlength="200">
+                                                        </div>
+                                                    </div>
+
+                                                    <!-- Barra de progreso -->
+                                                    <div class="progress mt-2 d-none" id="uploadProgress">
+                                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+                                                            role="progressbar" style="width: 0%" id="uploadProgressBar">
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div class="d-flex justify-content-end mt-3 d-none"
+                                                    id="imageActionButtons">
+                                                    <button class="btn btn-success" id="sendImageBtn" disabled>
+                                                        <i class="bi bi-send"></i> Enviar Imagen
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div class="col-auto">
-                                        <button class="btn btn-success" id="sendBtn" disabled>
-                                            <i class="bi bi-send-fill"></i> Enviar
-                                        </button>
-                                    </div>
-                                    <div class="col-auto">
-                                        <button class="btn btn-danger" id="disconnectBtn">
-                                            <i class="bi bi-power"></i> NO GO
-                                        </button>
+
+                                    <!-- Input de mensajes de texto -->
+                                    <div class="row g-2 align-items-center">
+                                        <div class="col">
+                                            <input type="text" class="form-control" id="messageInput"
+                                                placeholder="Escribe tu mensaje..." maxlength="500">
+                                        </div>
+                                        <div class="col-auto">
+                                            <button class="btn btn-outline-success" id="imageBtn" title="Enviar imagen">
+                                                <i class="bi bi-image"></i>
+                                            </button>
+                                        </div>
+                                        <div class="col-auto">
+                                            <button class="btn btn-success" id="sendBtn" disabled>
+                                                <i class="bi bi-send-fill"></i> Enviar
+                                            </button>
+                                        </div>
+                                        <div class="col-auto">
+                                            <button class="btn btn-danger" id="disconnectBtn">
+                                                <i class="bi bi-power"></i> NO GO
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -190,6 +301,30 @@
                         <i class="bi bi-code-slash"></i> Desarrollado por JUNIOR_ALVINES & SheralA16 |
                         <i class="bi bi-github"></i> github.com/JUNMPI/realtime-chat
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para vista previa de imágenes -->
+    <div class="modal fade" id="imageModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="imageModalTitle">Vista Previa de Imagen</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body text-center">
+                    <img id="modalImage" class="img-fluid rounded" alt="Imagen completa">
+                    <div class="mt-2">
+                        <small class="text-muted" id="modalImageInfo"></small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-success" id="downloadImageBtn">
+                        <i class="bi bi-download"></i> Descargar
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
                 </div>
             </div>
         </div>
@@ -230,11 +365,12 @@
                 this.username = '';
                 this.connected = false;
                 this.users = new Map();
+                this.selectedImageFile = null;
                 this.init();
             }
 
             init() {
-                console.log('🚀 Inicializando GO O NO GO Chat...');
+                console.log('🚀 Inicializando GO O NO GO Chat con soporte para imágenes...');
 
                 this.elements = {
                     messages: document.getElementById('messages'),
@@ -253,13 +389,36 @@
                     errorToast: document.getElementById('errorToast'),
                     errorToastBody: document.getElementById('errorToastBody'),
                     successToast: document.getElementById('successToast'),
-                    successToastBody: document.getElementById('successToastBody')
+                    successToastBody: document.getElementById('successToastBody'),
+
+                    // Elementos de imagen
+                    imageBtn: document.getElementById('imageBtn'),
+                    imageUploadSection: document.getElementById('imageUploadSection'),
+                    imageUploadArea: document.getElementById('imageUploadArea'),
+                    imageFileInput: document.getElementById('imageFileInput'),
+                    imagePreviewSection: document.getElementById('imagePreviewSection'),
+                    imagePreview: document.getElementById('imagePreview'),
+                    imageName: document.getElementById('imageName'),
+                    imageSize: document.getElementById('imageSize'),
+                    imageCaption: document.getElementById('imageCaption'),
+                    imageActionButtons: document.getElementById('imageActionButtons'),
+                    sendImageBtn: document.getElementById('sendImageBtn'),
+                    cancelImageBtn: document.getElementById('cancelImageBtn'),
+                    uploadProgress: document.getElementById('uploadProgress'),
+                    uploadProgressBar: document.getElementById('uploadProgressBar'),
+
+                    // Modal de imagen
+                    imageModal: document.getElementById('imageModal'),
+                    modalImage: document.getElementById('modalImage'),
+                    modalImageInfo: document.getElementById('modalImageInfo'),
+                    imageModalTitle: document.getElementById('imageModalTitle'),
+                    downloadImageBtn: document.getElementById('downloadImageBtn')
                 };
 
                 this.setupEventListeners();
+                this.setupImageHandlers();
 
-                // Mensaje de bienvenida en consola
-                console.log('💚 Chat desarrollado por JUNIOR_ALVINES');
+                console.log('💚 Chat desarrollado por JUNIOR_ALVINES & SheralA16');
                 console.log('🔗 GitHub: github.com/JUNMPI/realtime-chat');
             }
 
@@ -280,16 +439,178 @@
                     this.elements.sendBtn.disabled = !this.elements.messageInput.value.trim();
                 });
 
-                // Limpiar errores cuando el usuario escriba
                 this.elements.usernameInput.addEventListener('input', () => {
                     this.clearUsernameError();
                 });
             }
 
+            setupImageHandlers() {
+                // Botón para mostrar sección de imágenes
+                this.elements.imageBtn.addEventListener('click', () => this.showImageUpload());
+
+                // Cancelar subida de imagen
+                this.elements.cancelImageBtn.addEventListener('click', () => this.hideImageUpload());
+
+                // Área de arrastrar y soltar
+                this.elements.imageUploadArea.addEventListener('click', () => {
+                    this.elements.imageFileInput.click();
+                });
+
+                this.elements.imageUploadArea.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    this.elements.imageUploadArea.classList.add('dragover');
+                });
+
+                this.elements.imageUploadArea.addEventListener('dragleave', () => {
+                    this.elements.imageUploadArea.classList.remove('dragover');
+                });
+
+                this.elements.imageUploadArea.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    this.elements.imageUploadArea.classList.remove('dragover');
+
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        this.handleImageFile(files[0]);
+                    }
+                });
+
+                // Input de archivo
+                this.elements.imageFileInput.addEventListener('change', (e) => {
+                    if (e.target.files.length > 0) {
+                        this.handleImageFile(e.target.files[0]);
+                    }
+                });
+
+                // Enviar imagen
+                this.elements.sendImageBtn.addEventListener('click', () => this.sendImage());
+
+                // Botón de descarga en modal
+                this.elements.downloadImageBtn.addEventListener('click', () => this.downloadCurrentImage());
+            }
+
+            showImageUpload() {
+                this.elements.imageUploadSection.classList.remove('d-none');
+                this.elements.imageBtn.disabled = true;
+                this.resetImageUpload();
+            }
+
+            hideImageUpload() {
+                this.elements.imageUploadSection.classList.add('d-none');
+                this.elements.imageBtn.disabled = false;
+                this.resetImageUpload();
+            }
+
+            resetImageUpload() {
+                this.selectedImageFile = null;
+                this.elements.imageFileInput.value = '';
+                this.elements.imagePreviewSection.classList.add('d-none');
+                this.elements.imageActionButtons.classList.add('d-none');
+                this.elements.uploadProgress.classList.add('d-none');
+                this.elements.imageCaption.value = '';
+                this.elements.sendImageBtn.disabled = true;
+                this.elements.uploadProgressBar.style.width = '0%';
+            }
+
+            handleImageFile(file) {
+                // Validaciones básicas
+                if (!file.type.startsWith('image/')) {
+                    this.showErrorToast('Por favor selecciona un archivo de imagen válido');
+                    return;
+                }
+
+                if (file.size > 5 * 1024 * 1024) { // 5MB
+                    this.showErrorToast('La imagen es demasiado grande (máximo 5MB)');
+                    return;
+                }
+
+                this.selectedImageFile = file;
+
+                // Mostrar vista previa
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    this.elements.imagePreview.src = e.target.result;
+                    this.elements.imageName.textContent = file.name;
+                    this.elements.imageSize.textContent = this.formatFileSize(file.size);
+
+                    this.elements.imagePreviewSection.classList.remove('d-none');
+                    this.elements.imageActionButtons.classList.remove('d-none');
+                    this.elements.sendImageBtn.disabled = false;
+                };
+                reader.readAsDataURL(file);
+            }
+
+            async sendImage() {
+                if (!this.selectedImageFile || !this.connected) return;
+
+                this.elements.sendImageBtn.disabled = true;
+                this.elements.uploadProgress.classList.remove('d-none');
+
+                try {
+                    // Simular progreso de subida
+                    await this.simulateUploadProgress();
+
+                    // Convertir imagen a base64
+                    const base64Data = await this.fileToBase64(this.selectedImageFile);
+
+                    const imageMessage = {
+                        type: 'image',
+                        content: this.elements.imageCaption.value.trim(),
+                        imageData: base64Data,
+                        imageName: this.selectedImageFile.name,
+                        imageSize: this.selectedImageFile.size
+                    };
+
+                    this.socket.send(JSON.stringify(imageMessage));
+                    console.log('🖼️ Imagen enviada:', this.selectedImageFile.name);
+
+                    // Limpiar interfaz
+                    this.hideImageUpload();
+                    this.showSuccessToast('¡Imagen enviada exitosamente!');
+
+                } catch (error) {
+                    console.error('Error enviando imagen:', error);
+                    this.showErrorToast('Error enviando la imagen. Inténtalo de nuevo.');
+                    this.elements.sendImageBtn.disabled = false;
+                    this.elements.uploadProgress.classList.add('d-none');
+                }
+            }
+
+            simulateUploadProgress() {
+                return new Promise((resolve) => {
+                    let progress = 0;
+                    const interval = setInterval(() => {
+                        progress += Math.random() * 30;
+                        if (progress >= 100) {
+                            progress = 100;
+                            clearInterval(interval);
+                            resolve();
+                        }
+                        this.elements.uploadProgressBar.style.width = progress + '%';
+                    }, 100);
+                });
+            }
+
+            fileToBase64(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            formatFileSize(bytes) {
+                if (bytes === 0) return '0 Bytes';
+                const k = 1024;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+            }
+
             connect() {
                 const username = this.elements.usernameInput.value.trim();
 
-                // Validaciones en el frontend
                 if (!username) {
                     this.showUsernameError('Por favor, ingresa tu nombre de usuario');
                     return;
@@ -313,13 +634,11 @@
                 this.username = username;
                 console.log('🔌 Conectando como:', username);
 
-                // Mostrar estado de conexión
                 this.updateStatus('connecting', 'Conectando...');
                 this.updateConnectionDetails('info', 'Verificando nombre de usuario...');
                 this.elements.connectBtn.disabled = true;
                 this.elements.connectBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Conectando...';
 
-                // ⭐ RAILWAY: Detectar protocolo automáticamente
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const wsURL = `${protocol}//${window.location.host}/ws?username=${encodeURIComponent(username)}`;
 
@@ -337,7 +656,6 @@
                     try {
                         const data = JSON.parse(event.data);
 
-                        // Manejar diferentes tipos de mensajes
                         if (data.type === 'error') {
                             console.error('❌ Error del servidor:', data.message);
                             this.handleConnectionError(data.message);
@@ -354,7 +672,7 @@
                             console.log('👥 Lista de usuarios recibida:', data.users);
                             this.updateUsersList(data.users);
                         } else {
-                            console.log('💬 Mensaje regular recibido');
+                            console.log('💬 Mensaje recibido');
                             this.displayMessage(data);
                         }
                     } catch (error) {
@@ -366,10 +684,8 @@
                     console.log('🔌 WebSocket cerrado, código:', event.code);
 
                     if (!this.connected) {
-                        // Si no se había conectado exitosamente, fue un error
                         this.handleConnectionError('No se pudo conectar al servidor');
                     } else {
-                        // Desconexión normal
                         this.connected = false;
                         this.updateStatus('disconnected', 'Desconectado');
                         this.updateConnectionDetails('warning', 'Desconectado del servidor');
@@ -390,10 +706,8 @@
                 this.toggleUI(true);
                 this.addSystemMessage(`Te has conectado al chat como "${data.username}"`);
 
-                // Mostrar toast de éxito
                 this.showSuccessToast(`¡Conectado exitosamente como ${data.username}!`);
 
-                // Restaurar botón
                 this.elements.connectBtn.disabled = false;
                 this.elements.connectBtn.innerHTML = '<i class="bi bi-rocket-takeoff"></i> GO!';
             }
@@ -401,24 +715,20 @@
             handleConnectionError(errorMessage) {
                 console.error('❌ Error de conexión:', errorMessage);
 
-                // Mostrar toast de error
                 this.showErrorToast(errorMessage);
 
-                // Restaurar interfaz
                 this.connected = false;
                 this.updateStatus('error', 'Error de conexión');
                 this.updateConnectionDetails('danger', errorMessage);
                 this.elements.connectBtn.disabled = false;
                 this.elements.connectBtn.innerHTML = '<i class="bi bi-rocket-takeoff"></i> GO!';
 
-                // Manejar error de nombre duplicado
                 if (errorMessage.includes('ya está en uso')) {
                     this.showUsernameError('Este nombre ya está en uso. Elige otro.');
                     this.elements.usernameInput.value = '';
                     this.elements.usernameInput.focus();
                 }
 
-                // Cerrar socket si existe
                 if (this.socket) {
                     this.socket.close();
                     this.socket = null;
@@ -437,6 +747,7 @@
                 }
 
                 const messageData = {
+                    type: 'text',
                     content: this.elements.messageInput.value.trim()
                 };
 
@@ -448,6 +759,7 @@
             displayMessage(message) {
                 const isOwn = message.username === this.username;
                 const isSystem = message.type === 'system' || message.type === 'join' || message.type === 'leave';
+                const isImage = message.type === 'image';
 
                 let time;
                 try {
@@ -464,6 +776,33 @@
                         <div class="alert alert-info text-center py-2 mb-2">
                             <i class="bi bi-info-circle"></i> ${this.escapeHtml(message.content)}
                             <div class="message-time mt-1">${time}</div>
+                        </div>
+                    `;
+                } else if (isImage) {
+                    const cardClass = isOwn ? 'message-own text-white' : 'bg-light';
+                    const alignment = isOwn ? 'ms-auto' : 'me-auto';
+
+                    messageElement.innerHTML = `
+                        <div class="card ${cardClass} ${alignment}" style="max-width: 70%;">
+                            <div class="card-body py-2 px-3">
+                                ${!isOwn ? `<div class="fw-bold small mb-1">${this.escapeHtml(message.username)}</div>` : ''}
+                                <div class="mb-2">
+                                    <img src="data:${message.mimeType};base64,${message.imageData}" 
+                                         class="message-image img-fluid" 
+                                         alt="${this.escapeHtml(message.imageName)}"
+                                         data-bs-toggle="modal" 
+                                         data-bs-target="#imageModal"
+                                         data-image-src="data:${message.mimeType};base64,${message.imageData}"
+                                         data-image-name="${this.escapeHtml(message.imageName)}"
+                                         data-image-size="${this.formatFileSize(message.imageSize)}"
+                                         data-image-user="${this.escapeHtml(message.username)}">
+                                </div>
+                                ${message.content ? `<div class="small mb-1">${this.escapeHtml(message.content)}</div>` : ''}
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small class="text-muted">${this.escapeHtml(message.imageName)} (${this.formatFileSize(message.imageSize)})</small>
+                                    <div class="message-time">${time}</div>
+                                </div>
+                            </div>
                         </div>
                     `;
                 } else {
@@ -487,7 +826,44 @@
                 }
 
                 this.elements.messages.appendChild(messageElement);
+
+                // Configurar evento para modal de imagen
+                if (isImage) {
+                    const img = messageElement.querySelector('.message-image');
+                    img.addEventListener('click', (e) => {
+                        this.showImageModal(
+                            e.target.dataset.imageSrc,
+                            e.target.dataset.imageName,
+                            e.target.dataset.imageSize,
+                            e.target.dataset.imageUser
+                        );
+                    });
+                }
+
                 this.scrollToBottom();
+            }
+
+            showImageModal(imageSrc, imageName, imageSize, imageUser) {
+                this.elements.modalImage.src = imageSrc;
+                this.elements.imageModalTitle.textContent = `Imagen de ${imageUser}`;
+                this.elements.modalImageInfo.textContent = `${imageName} (${imageSize})`;
+
+                this.currentModalImageSrc = imageSrc;
+                this.currentModalImageName = imageName;
+
+                const modal = new bootstrap.Modal(this.elements.imageModal);
+                modal.show();
+            }
+
+            downloadCurrentImage() {
+                if (this.currentModalImageSrc && this.currentModalImageName) {
+                    const link = document.createElement('a');
+                    link.href = this.currentModalImageSrc;
+                    link.download = this.currentModalImageName;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }
             }
 
             updateUsersList(users) {
@@ -507,9 +883,7 @@
                 const connectedUsers = users.filter(user => user.connected);
                 const disconnectedUsers = users.filter(user => !user.connected);
 
-                // Agregar usuarios conectados
                 connectedUsers.forEach(user => this.addUserToList(user));
-                // Agregar usuarios desconectados
                 disconnectedUsers.forEach(user => this.addUserToList(user));
 
                 this.updateOnlineCount(connectedUsers.length);
@@ -611,6 +985,9 @@
                     this.elements.messageSection.classList.add('d-none');
                     this.elements.usernameInput.focus();
 
+                    // Ocultar sección de imagen si estaba visible
+                    this.hideImageUpload();
+
                     // Limpiar lista de usuarios
                     this.elements.usersList.innerHTML = `
                         <div class="text-center text-muted py-4">
@@ -658,11 +1035,12 @@
 
         // Inicializar cuando el DOM esté listo
         document.addEventListener('DOMContentLoaded', () => {
-            console.log('🎬 DOM cargado, iniciando GO O NO GO Chat...');
-            console.log('👨‍💻 Desarrollado por JUNIOR_ALVINES');
+            console.log('🎬 DOM cargado, iniciando GO O NO GO Chat con soporte para imágenes...');
+            console.log('👨‍💻 Desarrollado por JUNIOR_ALVINES & SheralA16');
             new ChatClient();
         });
     </script>
 </body>
 
 </html>
+<

@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"log"
+	"mime"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -20,7 +23,7 @@ const (
 	pingPeriod = (pongWait * 9) / 10
 
 	// Tamaño máximo del mensaje permitido del cliente
-	maxMessageSize = 512
+	maxMessageSize = 10 * 1024 * 1024 // Aumentado a 10MB para imágenes
 )
 
 var (
@@ -41,6 +44,15 @@ type Client struct {
 
 	// Nombre de usuario del cliente
 	username string
+}
+
+// IncomingMessage representa la estructura de mensajes entrantes del cliente
+type IncomingMessage struct {
+	Type      string `json:"type"`      // "text" o "image"
+	Content   string `json:"content"`   // Contenido del mensaje o caption
+	ImageData string `json:"imageData"` // Datos base64 de la imagen
+	ImageName string `json:"imageName"` // Nombre del archivo
+	ImageSize int64  `json:"imageSize"` // Tamaño del archivo
 }
 
 // readPump bombea mensajes desde la conexión WebSocket al hub
@@ -78,20 +90,34 @@ func (c *Client) readPump() {
 		messageBytes = bytes.TrimSpace(bytes.Replace(messageBytes, newline, space, -1))
 
 		// Intentar parsear el mensaje como JSON
-		var incomingMsg struct {
-			Content string `json:"content"`
-		}
-
+		var incomingMsg IncomingMessage
 		if err := json.Unmarshal(messageBytes, &incomingMsg); err != nil {
 			log.Printf("Error parseando mensaje JSON de cliente '%s': %v", c.username, err)
 			continue
 		}
 
-		// Crear mensaje completo con metadata
-		msg := NewMessage(c.username, incomingMsg.Content)
+		var msg *Message
+		var messageJSON []byte
+
+		// Procesar según el tipo de mensaje
+		switch incomingMsg.Type {
+		case "image":
+			// Procesar mensaje de imagen
+			msg, err = c.processImageMessage(incomingMsg)
+			if err != nil {
+				log.Printf("Error procesando imagen de '%s': %v", c.username, err)
+				c.sendErrorMessage(err.Error())
+				continue
+			}
+
+		case "text":
+		default:
+			// Procesar mensaje de texto normal
+			msg = NewMessage(c.username, incomingMsg.Content)
+		}
 
 		// Serializar mensaje completo
-		messageJSON, err := json.Marshal(msg)
+		messageJSON, err = json.Marshal(msg)
 		if err != nil {
 			log.Printf("Error serializando mensaje de '%s': %v", c.username, err)
 			continue
@@ -100,14 +126,70 @@ func (c *Client) readPump() {
 		// Enviar al hub para difusión
 		select {
 		case c.hub.broadcast <- messageJSON:
-			log.Printf("💬 Mensaje de '%s' enviado al hub", c.username)
+			if msg.Type == MessageTypeImage {
+				log.Printf("🖼️ Imagen de '%s' enviada al hub (%s)", c.username, FormatImageSize(msg.ImageSize))
+			} else {
+				log.Printf("💬 Mensaje de '%s' enviado al hub", c.username)
+			}
 		default:
 			log.Printf("⚠️ Hub ocupado, mensaje de '%s' descartado", c.username)
 		}
 	}
 }
 
-// ⭐ CORREGIDO: writePump - Un mensaje por WebSocket frame
+// processImageMessage procesa un mensaje de imagen entrante
+func (c *Client) processImageMessage(incomingMsg IncomingMessage) (*Message, error) {
+	// Validar la imagen
+	err := ValidateImage(incomingMsg.ImageData, incomingMsg.ImageName, incomingMsg.ImageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	// Detectar tipo MIME
+	mimeType := mime.TypeByExtension(filepath.Ext(incomingMsg.ImageName))
+	if mimeType == "" {
+		mimeType = detectMimeTypeFromBase64(incomingMsg.ImageData)
+	}
+
+	// Limpiar datos base64 (remover prefijo data URL si existe)
+	imageData := incomingMsg.ImageData
+	if strings.Contains(imageData, ",") {
+		parts := strings.Split(imageData, ",")
+		if len(parts) > 1 {
+			imageData = parts[1]
+		}
+	}
+
+	// Crear mensaje de imagen
+	msg := NewImageMessage(
+		c.username,
+		incomingMsg.Content, // Caption opcional
+		imageData,
+		incomingMsg.ImageName,
+		incomingMsg.ImageSize,
+		mimeType,
+	)
+
+	return msg, nil
+}
+
+// sendErrorMessage envía un mensaje de error al cliente
+func (c *Client) sendErrorMessage(errorMsg string) {
+	errorResponse := map[string]interface{}{
+		"type":    "error",
+		"message": errorMsg,
+	}
+
+	if msgBytes, err := json.Marshal(errorResponse); err == nil {
+		select {
+		case c.send <- msgBytes:
+		default:
+			log.Printf("No se pudo enviar mensaje de error a '%s'", c.username)
+		}
+	}
+}
+
+// writePump bombea mensajes del hub al cliente WebSocket
 func (c *Client) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
@@ -131,14 +213,12 @@ func (c *Client) writePump() {
 				return
 			}
 
-			// ⭐ CORREGIDO: Enviar cada mensaje como un frame separado
+			// Enviar cada mensaje como un frame separado
 			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				log.Printf("Error escribiendo mensaje para '%s': %v", c.username, err)
 				return
 			}
 
-			// ⭐ IMPORTANTE: NO concatenar mensajes adicionales
-			// Cada mensaje debe ir en su propio WebSocket frame
 			// Procesar mensajes adicionales en el buffer sin concatenar
 		additionalMessages:
 			for {
