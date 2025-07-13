@@ -92,8 +92,17 @@ func (c *Client) readPump() {
 		// Intentar parsear el mensaje como JSON
 		var incomingMsg IncomingMessage
 		if err := json.Unmarshal(messageBytes, &incomingMsg); err != nil {
-			log.Printf("Error parseando mensaje JSON de cliente '%s': %v", c.username, err)
-			continue
+			// Si falla, intentar como mensaje simple (compatibilidad hacia atrás)
+			var simpleMsg struct {
+				Content string `json:"content"`
+			}
+			if err := json.Unmarshal(messageBytes, &simpleMsg); err != nil {
+				log.Printf("Error parseando mensaje JSON de cliente '%s': %v", c.username, err)
+				continue
+			}
+			// Convertir a formato nuevo
+			incomingMsg.Type = "text"
+			incomingMsg.Content = simpleMsg.Content
 		}
 
 		var msg *Message
