@@ -107,11 +107,14 @@ func (h *Hub) registerClient(client *Client) {
 			}
 		}
 
-		// Cerrar la conexión después de un breve delay para que el mensaje llegue
-		go func() {
-			time.Sleep(100 * time.Millisecond)
-			client.conn.Close()
-		}()
+		// ⭐ CORREGIDO: Solo cerrar conexión si existe
+		if client.conn != nil {
+			// Cerrar la conexión después de un breve delay para que el mensaje llegue
+			go func() {
+				time.Sleep(100 * time.Millisecond)
+				client.conn.Close()
+			}()
+		}
 
 		return // ⭐ IMPORTANTE: No registrar el cliente
 	}
