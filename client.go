@@ -89,45 +89,48 @@ func (c *Client) readPump() {
 
 		messageBytes = bytes.TrimSpace(bytes.Replace(messageBytes, newline, space, -1))
 
-		// Intentar parsear el mensaje como JSON
-		var incomingMsg IncomingMessage
-		if err := json.Unmarshal(messageBytes, &incomingMsg); err != nil {
-			// Si falla, intentar como mensaje simple (compatibilidad hacia atrás)
-			var simpleMsg struct {
-				Content string `json:"content"`
-			}
-			if err := json.Unmarshal(messageBytes, &simpleMsg); err != nil {
-				log.Printf("Error parseando mensaje JSON de cliente '%s': %v", c.username, err)
-				continue
-			}
-			// Convertir a formato nuevo
-			incomingMsg.Type = "text"
-			incomingMsg.Content = simpleMsg.Content
-		}
-
-		// Si no tiene tipo definido, asumir que es texto
-		if incomingMsg.Type == "" {
-			incomingMsg.Type = "text"
-		}
-
 		var msg *Message
 		var messageJSON []byte
 
-		// Procesar según el tipo de mensaje
-		switch incomingMsg.Type {
-		case "image":
-			// Procesar mensaje de imagen
-			msg, err = c.processImageMessage(incomingMsg)
+		// Intentar determinar el tipo de mensaje
+		var rawMsg map[string]interface{}
+		if err := json.Unmarshal(messageBytes, &rawMsg); err != nil {
+			log.Printf("Error parseando JSON base de cliente '%s': %v", c.username, err)
+			continue
+		}
+
+		// Verificar si es un mensaje de imagen
+		if msgType, exists := rawMsg["type"]; exists && msgType == "image" {
+			// Parsear como mensaje de imagen
+			var incomingImg IncomingMessage
+			if err := json.Unmarshal(messageBytes, &incomingImg); err != nil {
+				log.Printf("Error parseando mensaje de imagen de cliente '%s': %v", c.username, err)
+				continue
+			}
+
+			msg, err = c.processImageMessage(incomingImg)
 			if err != nil {
 				log.Printf("Error procesando imagen de '%s': %v", c.username, err)
 				c.sendErrorMessage(err.Error())
 				continue
 			}
+		} else {
+			// Tratar como mensaje de texto (formato original o nuevo)
+			var content string
+			
+			if contentVal, exists := rawMsg["content"]; exists {
+				if contentStr, ok := contentVal.(string); ok {
+					content = contentStr
+				}
+			}
 
-		case "text":
-		default:
-			// Procesar mensaje de texto normal
-			msg = NewMessage(c.username, incomingMsg.Content)
+			if content == "" {
+				log.Printf("Mensaje sin contenido de cliente '%s'", c.username)
+				continue
+			}
+
+			// Crear mensaje de texto normal
+			msg = NewMessage(c.username, content)
 		}
 
 		// Serializar mensaje completo
