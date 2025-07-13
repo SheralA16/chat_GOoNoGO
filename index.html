@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GO O NO GO - Chat en Tiempo Real | Sheral_Altamirano </title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- Custom CSS para gradientes y efectos especiales -->
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #198754 0%, #20c997 100%);
+            min-height: 100vh;
+        }
+
+        .chat-header {
+            background: linear-gradient(45deg, #198754, #20c997);
+        }
+
+        .message-own {
+            background: linear-gradient(45deg, #198754, #20c997);
+        }
+
+        .user-status.online {
+            background: linear-gradient(45deg, #198754, #20c997);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 8px rgba(25, 135, 84, 0.6);
+            }
+
+            50% {
+                box-shadow: 0 0 15px rgba(25, 135, 84, 0.8);
+            }
+
+            100% {
+                box-shadow: 0 0 8px rgba(25, 135, 84, 0.6);
+            }
+        }
+
+        .user-status {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 2px solid white;
+        }
+
+        .user-status.offline {
+            background: #6c757d;
+        }
+
+        .message-time {
+            font-size: 0.75rem;
+            opacity: 0.7;
+        }
+
+        .chat-container {
+            height: 85vh;
+            max-height: 800px;
+        }
+
+        .messages-container {
+            height: 400px;
+            overflow-y: auto;
+        }
+
+        .users-list {
+            height: 300px;
+            overflow-y: auto;
+        }
+
+        .footer-brand {
+            background: linear-gradient(45deg, #198754, #20c997);
+            color: white;
+            text-align: center;
+            padding: 10px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+    </style>
+</head>
+
+<body class="gradient-bg">
+    <div class="container-fluid py-3">
+        <div class="row justify-content-center">
+            <div class="col-12 col-xl-11">
+                <div class="card shadow-lg border-0 chat-container">
+                    <div class="row g-0 h-100">
+                        <!-- Chat Principal -->
+                        <div class="col-lg-8 d-flex flex-column">
+                            <!-- Header del Chat -->
+                            <div class="card-header chat-header text-white p-3">
+                                <div class="row align-items-center">
+                                    <div class="col">
+                                        <h3 class="mb-1">
+                                            <i class="bi bi-rocket-takeoff"></i> GO O NO GO
+                                        </h3>
+                                        <div class="small" id="connectionStatus">
+                                            <i class="bi bi-circle-fill text-danger"></i> Desconectado
+                                        </div>
+                                    </div>
+                                    <div class="col-auto">
+                                        <span class="badge bg-light text-dark px-3 py-2" id="onlineCount">
+                                            <i class="bi bi-people-fill"></i> 0 conectados
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Estado de Conexión -->
+                            <div class="alert alert-info mb-0 text-center border-0" id="connectionDetails">
+                                <i class="bi bi-info-circle"></i> Listo para conectar...
+                            </div>
+
+                            <!-- Contenedor de Mensajes -->
+                            <div class="flex-grow-1 p-3 messages-container" id="messages">
+                                <div class="text-center text-muted">
+                                    <i class="bi bi-chat-dots fs-1"></i>
+                                    <p>No hay mensajes aún. ¡Sé el primero en escribir!</p>
+                                    <small>Chat desarrollado por JUNIOR_ALVINES & SheralA16</small>
+                                </div>
+                            </div>
+
+                            <!-- Input Container -->
+                            <div class="card-footer bg-light p-3">
+                                <!-- Sección de Username -->
+                                <div class="row g-2 align-items-center" id="usernameSection">
+                                    <div class="col-auto">
+                                        <label for="usernameInput" class="form-label fw-bold text-success mb-0">
+                                            <i class="bi bi-person-fill"></i> Usuario:
+                                        </label>
+                                    </div>
+                                    <div class="col">
+                                        <input type="text" class="form-control" id="usernameInput"
+                                            placeholder="Tu nombre de usuario" maxlength="20">
+                                        <div class="invalid-feedback" id="usernameError"></div>
+                                    </div>
+                                    <div class="col-auto">
+                                        <button class="btn btn-success" id="connectBtn">
+                                            <i class="bi bi-rocket-takeoff"></i> GO!
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Sección de Mensajes -->
+                                <div class="row g-2 align-items-center d-none" id="messageSection">
+                                    <div class="col">
+                                        <input type="text" class="form-control" id="messageInput"
+                                            placeholder="Escribe tu mensaje..." maxlength="500">
+                                    </div>
+                                    <div class="col-auto">
+                                        <button class="btn btn-success" id="sendBtn" disabled>
+                                            <i class="bi bi-send-fill"></i> Enviar
+                                        </button>
+                                    </div>
+                                    <div class="col-auto">
+                                        <button class="btn btn-danger" id="disconnectBtn">
+                                            <i class="bi bi-power"></i> NO GO
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Sidebar de Usuarios -->
+                        <div class="col-lg-4 border-start">
+                            <div class="card-header chat-header text-white text-center p-3">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-people-fill"></i> Operadores Activos
+                                </h5>
+                            </div>
+                            <div class="p-3">
+                                <div class="users-list" id="usersList">
+                                    <div class="text-center text-muted py-4">
+                                        <i class="bi bi-person-x fs-1"></i>
+                                        <p class="small mb-0">No hay operadores conectados</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer con tu marca -->
+                    <div class="footer-brand">
+                        <i class="bi bi-code-slash"></i> Desarrollado por JUNIOR_ALVINES & SheralA16 |
+                        <i class="bi bi-github"></i> github.com/JUNMPI/realtime-chat
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container para Notificaciones -->
+    <div class="toast-container position-fixed top-0 end-0 p-3">
+        <div id="errorToast" class="toast text-bg-danger" role="alert">
+            <div class="toast-header">
+                <i class="bi bi-exclamation-triangle-fill text-danger me-2"></i>
+                <strong class="me-auto">Error</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="errorToastBody">
+                <!-- Mensaje de error aquí -->
+            </div>
+        </div>
+
+        <div id="successToast" class="toast text-bg-success" role="alert">
+            <div class="toast-header">
+                <i class="bi bi-check-circle-fill text-success me-2"></i>
+                <strong class="me-auto">¡Conectado!</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="successToastBody">
+                <!-- Mensaje de éxito aquí -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        class ChatClient {
+            constructor() {
+                this.socket = null;
+                this.username = '';
+                this.connected = false;
+                this.users = new Map();
+                this.init();
+            }
+
+            init() {
+                console.log('🚀 Inicializando GO O NO GO Chat...');
+
+                this.elements = {
+                    messages: document.getElementById('messages'),
+                    messageInput: document.getElementById('messageInput'),
+                    usernameInput: document.getElementById('usernameInput'),
+                    sendBtn: document.getElementById('sendBtn'),
+                    connectBtn: document.getElementById('connectBtn'),
+                    disconnectBtn: document.getElementById('disconnectBtn'),
+                    connectionStatus: document.getElementById('connectionStatus'),
+                    connectionDetails: document.getElementById('connectionDetails'),
+                    messageSection: document.getElementById('messageSection'),
+                    usernameSection: document.getElementById('usernameSection'),
+                    usersList: document.getElementById('usersList'),
+                    onlineCount: document.getElementById('onlineCount'),
+                    usernameError: document.getElementById('usernameError'),
+                    errorToast: document.getElementById('errorToast'),
+                    errorToastBody: document.getElementById('errorToastBody'),
+                    successToast: document.getElementById('successToast'),
+                    successToastBody: document.getElementById('successToastBody')
+                };
+
+                this.setupEventListeners();
+
+                // Mensaje de bienvenida en consola
+                console.log('💚 Chat desarrollado por JUNIOR_ALVINES');
+                console.log('🔗 GitHub: github.com/JUNMPI/realtime-chat');
+            }
+
+            setupEventListeners() {
+                this.elements.connectBtn.addEventListener('click', () => this.connect());
+                this.elements.disconnectBtn.addEventListener('click', () => this.disconnect());
+                this.elements.sendBtn.addEventListener('click', () => this.sendMessage());
+
+                this.elements.messageInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.sendMessage();
+                });
+
+                this.elements.usernameInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.connect();
+                });
+
+                this.elements.messageInput.addEventListener('input', () => {
+                    this.elements.sendBtn.disabled = !this.elements.messageInput.value.trim();
+                });
+
+                // Limpiar errores cuando el usuario escriba
+                this.elements.usernameInput.addEventListener('input', () => {
+                    this.clearUsernameError();
+                });
+            }
+
+            connect() {
+                const username = this.elements.usernameInput.value.trim();
+
+                // Validaciones en el frontend
+                if (!username) {
+                    this.showUsernameError('Por favor, ingresa tu nombre de usuario');
+                    return;
+                }
+
+                if (username.length < 2) {
+                    this.showUsernameError('El nombre debe tener al menos 2 caracteres');
+                    return;
+                }
+
+                if (username.length > 20) {
+                    this.showUsernameError('El nombre no puede tener más de 20 caracteres');
+                    return;
+                }
+
+                if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+                    this.showUsernameError('Solo se permiten letras, números, guiones y guiones bajos');
+                    return;
+                }
+
+                this.username = username;
+                console.log('🔌 Conectando como:', username);
+
+                // Mostrar estado de conexión
+                this.updateStatus('connecting', 'Conectando...');
+                this.updateConnectionDetails('info', 'Verificando nombre de usuario...');
+                this.elements.connectBtn.disabled = true;
+                this.elements.connectBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Conectando...';
+
+                // ⭐ RAILWAY: Detectar protocolo automáticamente
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsURL = `${protocol}//${window.location.host}/ws?username=${encodeURIComponent(username)}`;
+
+                console.log('🌐 Conectando a:', wsURL);
+
+                this.socket = new WebSocket(wsURL);
+
+                this.socket.onopen = () => {
+                    console.log('✅ WebSocket abierto, esperando confirmación...');
+                };
+
+                this.socket.onmessage = (event) => {
+                    console.log('📨 Mensaje recibido:', event.data);
+
+                    try {
+                        const data = JSON.parse(event.data);
+
+                        // Manejar diferentes tipos de mensajes
+                        if (data.type === 'error') {
+                            console.error('❌ Error del servidor:', data.message);
+                            this.handleConnectionError(data.message);
+                            return;
+                        }
+
+                        if (data.type === 'connectionSuccess') {
+                            console.log('✅ Conexión exitosa confirmada');
+                            this.handleConnectionSuccess(data);
+                            return;
+                        }
+
+                        if (data.type === 'userList') {
+                            console.log('👥 Lista de usuarios recibida:', data.users);
+                            this.updateUsersList(data.users);
+                        } else {
+                            console.log('💬 Mensaje regular recibido');
+                            this.displayMessage(data);
+                        }
+                    } catch (error) {
+                        console.error('❌ Error parseando mensaje:', error);
+                    }
+                };
+
+                this.socket.onclose = (event) => {
+                    console.log('🔌 WebSocket cerrado, código:', event.code);
+
+                    if (!this.connected) {
+                        // Si no se había conectado exitosamente, fue un error
+                        this.handleConnectionError('No se pudo conectar al servidor');
+                    } else {
+                        // Desconexión normal
+                        this.connected = false;
+                        this.updateStatus('disconnected', 'Desconectado');
+                        this.updateConnectionDetails('warning', 'Desconectado del servidor');
+                        this.toggleUI(false);
+                    }
+                };
+
+                this.socket.onerror = (error) => {
+                    console.error('❌ Error WebSocket:', error);
+                    this.handleConnectionError('Error de conexión al servidor');
+                };
+            }
+
+            handleConnectionSuccess(data) {
+                this.connected = true;
+                this.updateStatus('connected', `Conectado como: ${data.username}`);
+                this.updateConnectionDetails('success', 'Conectado al servidor');
+                this.toggleUI(true);
+                this.addSystemMessage(`Te has conectado al chat como "${data.username}"`);
+
+                // Mostrar toast de éxito
+                this.showSuccessToast(`¡Conectado exitosamente como ${data.username}!`);
+
+                // Restaurar botón
+                this.elements.connectBtn.disabled = false;
+                this.elements.connectBtn.innerHTML = '<i class="bi bi-rocket-takeoff"></i> GO!';
+            }
+
+            handleConnectionError(errorMessage) {
+                console.error('❌ Error de conexión:', errorMessage);
+
+                // Mostrar toast de error
+                this.showErrorToast(errorMessage);
+
+                // Restaurar interfaz
+                this.connected = false;
+                this.updateStatus('error', 'Error de conexión');
+                this.updateConnectionDetails('danger', errorMessage);
+                this.elements.connectBtn.disabled = false;
+                this.elements.connectBtn.innerHTML = '<i class="bi bi-rocket-takeoff"></i> GO!';
+
+                // Manejar error de nombre duplicado
+                if (errorMessage.includes('ya está en uso')) {
+                    this.showUsernameError('Este nombre ya está en uso. Elige otro.');
+                    this.elements.usernameInput.value = '';
+                    this.elements.usernameInput.focus();
+                }
+
+                // Cerrar socket si existe
+                if (this.socket) {
+                    this.socket.close();
+                    this.socket = null;
+                }
+            }
+
+            disconnect() {
+                if (this.socket && this.connected) {
+                    this.socket.close(1000, 'Desconexión voluntaria');
+                }
+            }
+
+            sendMessage() {
+                if (!this.connected || !this.elements.messageInput.value.trim()) {
+                    return;
+                }
+
+                const messageData = {
+                    content: this.elements.messageInput.value.trim()
+                };
+
+                this.socket.send(JSON.stringify(messageData));
+                this.elements.messageInput.value = '';
+                this.elements.sendBtn.disabled = true;
+            }
+
+            displayMessage(message) {
+                const isOwn = message.username === this.username;
+                const isSystem = message.type === 'system' || message.type === 'join' || message.type === 'leave';
+
+                let time;
+                try {
+                    time = new Date(message.timestamp).toLocaleTimeString();
+                } catch (e) {
+                    time = new Date().toLocaleTimeString();
+                }
+
+                const messageElement = document.createElement('div');
+                messageElement.className = `mb-3 ${isOwn ? 'text-end' : ''}`;
+
+                if (isSystem) {
+                    messageElement.innerHTML = `
+                        <div class="alert alert-info text-center py-2 mb-2">
+                            <i class="bi bi-info-circle"></i> ${this.escapeHtml(message.content)}
+                            <div class="message-time mt-1">${time}</div>
+                        </div>
+                    `;
+                } else {
+                    const cardClass = isOwn ? 'message-own text-white' : 'bg-light';
+                    const alignment = isOwn ? 'ms-auto' : 'me-auto';
+
+                    messageElement.innerHTML = `
+                        <div class="card ${cardClass} ${alignment}" style="max-width: 70%;">
+                            <div class="card-body py-2 px-3">
+                                ${!isOwn ? `<div class="fw-bold small mb-1">${this.escapeHtml(message.username)}</div>` : ''}
+                                <div>${this.escapeHtml(message.content)}</div>
+                                <div class="message-time mt-1">${time}</div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // Limpiar mensaje de bienvenida si existe
+                if (this.elements.messages.querySelector('.text-muted')) {
+                    this.elements.messages.innerHTML = '';
+                }
+
+                this.elements.messages.appendChild(messageElement);
+                this.scrollToBottom();
+            }
+
+            updateUsersList(users) {
+                this.elements.usersList.innerHTML = '';
+
+                if (!users || users.length === 0) {
+                    this.elements.usersList.innerHTML = `
+                        <div class="text-center text-muted py-4">
+                            <i class="bi bi-person-x fs-1"></i>
+                            <p class="small mb-0">No hay operadores conectados</p>
+                        </div>
+                    `;
+                    this.updateOnlineCount(0);
+                    return;
+                }
+
+                const connectedUsers = users.filter(user => user.connected);
+                const disconnectedUsers = users.filter(user => !user.connected);
+
+                // Agregar usuarios conectados
+                connectedUsers.forEach(user => this.addUserToList(user));
+                // Agregar usuarios desconectados
+                disconnectedUsers.forEach(user => this.addUserToList(user));
+
+                this.updateOnlineCount(connectedUsers.length);
+            }
+
+            addUserToList(user) {
+                const statusClass = user.connected ? 'online' : 'offline';
+                const statusIcon = user.connected ? 'bi-circle-fill text-success' : 'bi-circle text-muted';
+
+                let timeText;
+                try {
+                    if (user.connected) {
+                        timeText = `Conectado ${this.formatRelativeTime(new Date(user.connectedAt))}`;
+                    } else {
+                        timeText = `Últ. vez ${this.formatRelativeTime(new Date(user.lastSeen))}`;
+                    }
+                } catch (e) {
+                    timeText = user.connected ? 'Conectado ahora' : 'Desconectado';
+                }
+
+                const userElement = document.createElement('div');
+                userElement.className = 'card mb-2';
+                userElement.innerHTML = `
+                    <div class="card-body py-2 px-3">
+                        <div class="d-flex align-items-center">
+                            <div class="user-status ${statusClass} me-2"></div>
+                            <div class="flex-grow-1">
+                                <div class="fw-bold small">${this.escapeHtml(user.username)}</div>
+                                <div class="text-muted" style="font-size: 0.75rem;">${timeText}</div>
+                            </div>
+                            <i class="bi ${statusIcon}"></i>
+                        </div>
+                    </div>
+                `;
+
+                this.elements.usersList.appendChild(userElement);
+            }
+
+            formatRelativeTime(date) {
+                try {
+                    const now = new Date();
+                    const diffMs = now - date;
+                    const diffMins = Math.floor(diffMs / 60000);
+                    const diffHours = Math.floor(diffMs / 3600000);
+
+                    if (diffMins < 1) return 'ahora';
+                    if (diffMins < 60) return `hace ${diffMins}m`;
+                    if (diffHours < 24) return `hace ${diffHours}h`;
+
+                    return date.toLocaleDateString();
+                } catch (e) {
+                    return 'ahora';
+                }
+            }
+
+            updateOnlineCount(count) {
+                this.elements.onlineCount.innerHTML = `
+                    <i class="bi bi-people-fill"></i> ${count} conectado${count !== 1 ? 's' : ''}
+                `;
+            }
+
+            addSystemMessage(content) {
+                const systemMessage = {
+                    username: 'Sistema',
+                    content: content,
+                    timestamp: new Date().toISOString(),
+                    type: 'system'
+                };
+                this.displayMessage(systemMessage);
+            }
+
+            updateStatus(statusType, text) {
+                const icons = {
+                    connected: 'bi-circle-fill text-success',
+                    connecting: 'bi-hourglass-split text-warning',
+                    disconnected: 'bi-circle-fill text-danger',
+                    error: 'bi-exclamation-triangle-fill text-danger'
+                };
+
+                this.elements.connectionStatus.innerHTML = `
+                    <i class="${icons[statusType] || 'bi-circle-fill text-secondary'}"></i> ${text}
+                `;
+            }
+
+            updateConnectionDetails(alertType, text) {
+                this.elements.connectionDetails.className = `alert alert-${alertType} mb-0 text-center border-0`;
+                this.elements.connectionDetails.innerHTML = `
+                    <i class="bi bi-info-circle"></i> ${text}
+                `;
+            }
+
+            toggleUI(connected) {
+                if (connected) {
+                    this.elements.usernameSection.classList.add('d-none');
+                    this.elements.messageSection.classList.remove('d-none');
+                    this.elements.messageInput.focus();
+                } else {
+                    this.elements.usernameSection.classList.remove('d-none');
+                    this.elements.messageSection.classList.add('d-none');
+                    this.elements.usernameInput.focus();
+
+                    // Limpiar lista de usuarios
+                    this.elements.usersList.innerHTML = `
+                        <div class="text-center text-muted py-4">
+                            <i class="bi bi-person-x fs-1"></i>
+                            <p class="small mb-0">No hay operadores conectados</p>
+                        </div>
+                    `;
+                    this.updateOnlineCount(0);
+                }
+                this.elements.sendBtn.disabled = true;
+            }
+
+            showUsernameError(message) {
+                this.elements.usernameInput.classList.add('is-invalid');
+                this.elements.usernameError.textContent = message;
+            }
+
+            clearUsernameError() {
+                this.elements.usernameInput.classList.remove('is-invalid');
+                this.elements.usernameError.textContent = '';
+            }
+
+            showErrorToast(message) {
+                this.elements.errorToastBody.textContent = message;
+                const toast = new bootstrap.Toast(this.elements.errorToast);
+                toast.show();
+            }
+
+            showSuccessToast(message) {
+                this.elements.successToastBody.textContent = message;
+                const toast = new bootstrap.Toast(this.elements.successToast);
+                toast.show();
+            }
+
+            scrollToBottom() {
+                this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
+            }
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        }
+
+        // Inicializar cuando el DOM esté listo
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('🎬 DOM cargado, iniciando GO O NO GO Chat...');
+            console.log('👨‍💻 Desarrollado por JUNIOR_ALVINES');
+            new ChatClient();
+        });
+    </script>
+</body>
+
+</html>
