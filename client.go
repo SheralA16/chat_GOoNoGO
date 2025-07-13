@@ -105,6 +105,11 @@ func (c *Client) readPump() {
 			incomingMsg.Content = simpleMsg.Content
 		}
 
+		// Si no tiene tipo definido, asumir que es texto
+		if incomingMsg.Type == "" {
+			incomingMsg.Type = "text"
+		}
+
 		var msg *Message
 		var messageJSON []byte
 
