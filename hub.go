@@ -48,8 +48,8 @@ func NewHub() *Hub {
 		unregister:     make(chan *Client, 100),
 		clients:        make(map[*Client]bool),
 		userHistory:    make(map[string]*UserStatus),
-		messageHistory: make([]*Message, 0),
-		maxHistorySize: 50, // Mantener últimos 50 mensajes
+		messageHistory: make([]*Message, 0),    // ⭐ AÑADIDO
+		maxHistorySize: 50,                     // ⭐ AÑADIDO
 	}
 }
 
