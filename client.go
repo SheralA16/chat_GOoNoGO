@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"log"
-	"mime"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -23,7 +21,7 @@ const (
 	pingPeriod = (pongWait * 9) / 10
 
 	// Tamaño máximo del mensaje permitido del cliente (aumentado para imágenes)
-	maxMessageSize = 10 * 1024 * 1024 // 10MB
+	maxMessageSize = 10 * 1024 * 1024 // 10MB para soportar imágenes
 )
 
 var (
@@ -46,13 +44,11 @@ type Client struct {
 	username string
 }
 
-// IncomingMessage representa la estructura de mensajes entrantes del cliente
+// IncomingMessage representa un mensaje entrante del cliente
 type IncomingMessage struct {
-	Type      string `json:"type"`      // "text" o "image"
-	Content   string `json:"content"`   // Contenido del mensaje o caption
-	ImageData string `json:"imageData"` // Datos base64 de la imagen
-	ImageName string `json:"imageName"` // Nombre del archivo
-	ImageSize int64  `json:"imageSize"` // Tamaño del archivo
+	Content  string     `json:"content"`
+	HasImage bool       `json:"hasImage"`
+	Image    *ImageData `json:"image,omitempty"`
 }
 
 // readPump bombea mensajes desde la conexión WebSocket al hub
@@ -89,52 +85,44 @@ func (c *Client) readPump() {
 
 		messageBytes = bytes.TrimSpace(bytes.Replace(messageBytes, newline, space, -1))
 
-		var msg *Message
-		var messageJSON []byte
-
-		// Intentar determinar el tipo de mensaje
-		var rawMsg map[string]interface{}
-		if err := json.Unmarshal(messageBytes, &rawMsg); err != nil {
-			log.Printf("Error parseando JSON base de cliente '%s': %v", c.username, err)
+		// Intentar parsear el mensaje como JSON
+		var incomingMsg IncomingMessage
+		if err := json.Unmarshal(messageBytes, &incomingMsg); err != nil {
+			log.Printf("Error parseando mensaje JSON de cliente '%s': %v", c.username, err)
 			continue
 		}
 
-		// Verificar si es un mensaje de imagen
-		if msgType, exists := rawMsg["type"]; exists && msgType == "image" {
-			// Parsear como mensaje de imagen
-			var incomingImg IncomingMessage
-			if err := json.Unmarshal(messageBytes, &incomingImg); err != nil {
-				log.Printf("Error parseando mensaje de imagen de cliente '%s': %v", c.username, err)
+		// ⭐ VALIDACIONES DE SEGURIDAD PARA IMÁGENES
+		if incomingMsg.HasImage && incomingMsg.Image != nil {
+			// Validar que sea una imagen válida
+			if !c.isValidImage(incomingMsg.Image) {
+				log.Printf("⚠️ Imagen inválida recibida de '%s'", c.username)
+				c.sendErrorMessage("Imagen inválida. Solo se permiten imágenes de hasta 5MB.")
 				continue
 			}
+			log.Printf("🖼️ Imagen válida recibida de '%s': %s (%d bytes)", 
+				c.username, incomingMsg.Image.Name, incomingMsg.Image.Size)
+		}
 
-			msg, err = c.processImageMessage(incomingImg)
-			if err != nil {
-				log.Printf("Error procesando imagen de '%s': %v", c.username, err)
-				c.sendErrorMessage(err.Error())
-				continue
-			}
+		// Validar contenido de texto si no hay imagen
+		if !incomingMsg.HasImage && strings.TrimSpace(incomingMsg.Content) == "" {
+			log.Printf("⚠️ Mensaje vacío recibido de '%s'", c.username)
+			continue
+		}
+
+		// Crear mensaje completo con metadata
+		var msg *Message
+		if incomingMsg.HasImage && incomingMsg.Image != nil {
+			msg = NewMessageWithImage(c.username, incomingMsg.Content, incomingMsg.Image)
+			log.Printf("💬🖼️ Mensaje con imagen de '%s': texto='%s', imagen='%s'", 
+				c.username, incomingMsg.Content, incomingMsg.Image.Name)
 		} else {
-			// Tratar como mensaje de texto (formato original o nuevo)
-			var content string
-			
-			if contentVal, exists := rawMsg["content"]; exists {
-				if contentStr, ok := contentVal.(string); ok {
-					content = contentStr
-				}
-			}
-
-			if content == "" {
-				log.Printf("Mensaje sin contenido de cliente '%s'", c.username)
-				continue
-			}
-
-			// Crear mensaje de texto normal
-			msg = NewMessage(c.username, content)
+			msg = NewMessage(c.username, incomingMsg.Content)
+			log.Printf("💬 Mensaje de texto de '%s': '%s'", c.username, incomingMsg.Content)
 		}
 
 		// Serializar mensaje completo
-		messageJSON, err = json.Marshal(msg)
+		messageJSON, err := json.Marshal(msg)
 		if err != nil {
 			log.Printf("Error serializando mensaje de '%s': %v", c.username, err)
 			continue
@@ -143,70 +131,71 @@ func (c *Client) readPump() {
 		// Enviar al hub para difusión
 		select {
 		case c.hub.broadcast <- messageJSON:
-			if msg.Type == MessageTypeImage {
-				log.Printf("🖼️ Imagen de '%s' enviada al hub (%s)", c.username, FormatImageSize(msg.ImageSize))
-			} else {
-				log.Printf("💬 Mensaje de '%s' enviado al hub", c.username)
-			}
+			log.Printf("📤 Mensaje de '%s' enviado al hub para difusión", c.username)
 		default:
 			log.Printf("⚠️ Hub ocupado, mensaje de '%s' descartado", c.username)
 		}
 	}
 }
 
-// processImageMessage procesa un mensaje de imagen entrante
-func (c *Client) processImageMessage(incomingMsg IncomingMessage) (*Message, error) {
-	// Validar la imagen
-	err := ValidateImage(incomingMsg.ImageData, incomingMsg.ImageName, incomingMsg.ImageSize)
-	if err != nil {
-		return nil, err
+// isValidImage valida que los datos de imagen sean seguros
+func (c *Client) isValidImage(image *ImageData) bool {
+	// Validar tamaño máximo (5MB)
+	const maxImageSize = 5 * 1024 * 1024
+	if image.Size > maxImageSize {
+		return false
 	}
 
-	// Detectar tipo MIME
-	mimeType := mime.TypeByExtension(filepath.Ext(incomingMsg.ImageName))
-	if mimeType == "" {
-		mimeType = detectMimeTypeFromBase64(incomingMsg.ImageData)
+	// Validar que sea un tipo MIME de imagen válido
+	validTypes := []string{
+		"image/jpeg", "image/jpg", "image/png", "image/gif", 
+		"image/webp", "image/bmp", "image/svg+xml",
 	}
-
-	// Limpiar datos base64 (remover prefijo data URL si existe)
-	imageData := incomingMsg.ImageData
-	if strings.Contains(imageData, ",") {
-		parts := strings.Split(imageData, ",")
-		if len(parts) > 1 {
-			imageData = parts[1]
+	
+	isValidType := false
+	for _, validType := range validTypes {
+		if image.Type == validType {
+			isValidType = true
+			break
 		}
 	}
+	
+	if !isValidType {
+		return false
+	}
 
-	// Crear mensaje de imagen
-	msg := NewImageMessage(
-		c.username,
-		incomingMsg.Content, // Caption opcional
-		imageData,
-		incomingMsg.ImageName,
-		incomingMsg.ImageSize,
-		mimeType,
-	)
+	// Validar que los datos estén en formato data URL válido
+	if !strings.HasPrefix(image.Data, "data:") {
+		return false
+	}
 
-	return msg, nil
+	// Validar nombre de archivo (longitud y caracteres básicos)
+	if len(image.Name) == 0 || len(image.Name) > 255 {
+		return false
+	}
+
+	return true
 }
 
 // sendErrorMessage envía un mensaje de error al cliente
-func (c *Client) sendErrorMessage(errorMsg string) {
-	errorResponse := map[string]interface{}{
+func (c *Client) sendErrorMessage(errorText string) {
+	errorMsg := map[string]interface{}{
 		"type":    "error",
-		"message": errorMsg,
+		"message": errorText,
+		"code":    "INVALID_IMAGE",
 	}
 
-	if msgBytes, err := json.Marshal(errorResponse); err == nil {
+	if msgBytes, err := json.Marshal(errorMsg); err == nil {
 		select {
 		case c.send <- msgBytes:
+			log.Printf("📤 Mensaje de error enviado a '%s'", c.username)
 		default:
-			log.Printf("No se pudo enviar mensaje de error a '%s'", c.username)
+			log.Printf("❌ No se pudo enviar mensaje de error a '%s'", c.username)
 		}
 	}
 }
 
-// writePump bombea mensajes del hub al cliente WebSocket
+// writePump bombea mensajes desde el hub hacia la conexión WebSocket
 func (c *Client) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
@@ -230,13 +219,13 @@ func (c *Client) writePump() {
 				return
 			}
 
-			// Enviar cada mensaje como un frame separado
+			// ⭐ ENVÍO OPTIMIZADO: Un mensaje por WebSocket frame
 			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				log.Printf("Error escribiendo mensaje para '%s': %v", c.username, err)
 				return
 			}
 
-			// Procesar mensajes adicionales en el buffer sin concatenar
+			// ⭐ PROCESAR MENSAJES ADICIONALES EN BUFFER SIN CONCATENAR
 		additionalMessages:
 			for {
 				select {

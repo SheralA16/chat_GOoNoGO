@@ -23,6 +23,10 @@ type Hub struct {
 	// Historial de todos los usuarios que se han conectado
 	userHistory map[string]*UserStatus
 
+	// ⭐ NUEVO: Historial de mensajes recientes (últimos 50 mensajes)
+	messageHistory []*Message
+	maxHistorySize int
+
 	// Mensajes entrantes de los clientes para difundir
 	broadcast chan []byte
 
@@ -39,11 +43,13 @@ type Hub struct {
 // NewHub crea una nueva instancia del hub de chat
 func NewHub() *Hub {
 	return &Hub{
-		broadcast:   make(chan []byte, 1000), // Buffer para evitar bloqueos
-		register:    make(chan *Client, 100),
-		unregister:  make(chan *Client, 100),
-		clients:     make(map[*Client]bool),
-		userHistory: make(map[string]*UserStatus),
+		broadcast:      make(chan []byte, 1000), // Buffer para evitar bloqueos
+		register:       make(chan *Client, 100),
+		unregister:     make(chan *Client, 100),
+		clients:        make(map[*Client]bool),
+		userHistory:    make(map[string]*UserStatus),
+		messageHistory: make([]*Message, 0),
+		maxHistorySize: 50, // Mantener últimos 50 mensajes
 	}
 }
 
@@ -65,7 +71,7 @@ func (h *Hub) Run() {
 	}
 }
 
-// isUsernameAvailable verifica si un nombre de usuario está disponible (método privado)
+// isUsernameAvailable verifica si un nombre de usuario está disponible
 func (h *Hub) isUsernameAvailable(username string) bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -107,13 +113,11 @@ func (h *Hub) registerClient(client *Client) {
 			}
 		}
 
-	// ⭐ CORREGIDO: Solo cerrar conexión si existe
-	if client.conn != nil {
+		// Cerrar la conexión después de un breve delay para que el mensaje llegue
 		go func() {
 			time.Sleep(100 * time.Millisecond)
 			client.conn.Close()
 		}()
-	}
 
 		return // ⭐ IMPORTANTE: No registrar el cliente
 	}
@@ -156,6 +160,9 @@ func (h *Hub) registerClient(client *Client) {
 		}
 	}
 
+	// ⭐ NUEVO: Enviar historial de mensajes recientes al cliente recién conectado
+	h.sendMessageHistory(client)
+
 	// Enviar lista de usuarios actualizada
 	h.broadcastUserList()
 
@@ -168,6 +175,34 @@ func (h *Hub) registerClient(client *Client) {
 	} else {
 		log.Printf("Error serializando mensaje de conexión: %v", err)
 	}
+}
+
+// ⭐ NUEVO: sendMessageHistory envía el historial de mensajes a un cliente específico
+func (h *Hub) sendMessageHistory(client *Client) {
+	h.mu.RLock()
+	historyCount := len(h.messageHistory)
+	h.mu.RUnlock()
+
+	if historyCount == 0 {
+		return
+	}
+
+	log.Printf("📜 Enviando historial de %d mensajes a '%s'", historyCount, client.username)
+
+	// Enviar cada mensaje del historial
+	h.mu.RLock()
+	for _, msg := range h.messageHistory {
+		if msgBytes, err := json.Marshal(msg); err == nil {
+			select {
+			case client.send <- msgBytes:
+				// Mensaje enviado exitosamente
+			default:
+				// Canal lleno, omitir mensaje
+				log.Printf("⚠️ Canal lleno, omitiendo mensaje del historial para '%s'", client.username)
+			}
+		}
+	}
+	h.mu.RUnlock()
 }
 
 // unregisterClient cancela el registro de un cliente del hub
@@ -208,6 +243,9 @@ func (h *Hub) unregisterClient(client *Client) {
 
 // broadcastMessage envía un mensaje a todos los clientes conectados
 func (h *Hub) broadcastMessage(message []byte) {
+	// ⭐ NUEVO: Agregar mensaje al historial antes de enviarlo
+	h.addToMessageHistory(message)
+
 	h.mu.RLock()
 	clients := make([]*Client, 0, len(h.clients))
 	for client := range h.clients {
@@ -231,6 +269,30 @@ func (h *Hub) broadcastMessage(message []byte) {
 			close(client.send)
 			log.Printf("Cliente '%s' eliminado por canal bloqueado", client.username)
 		}
+	}
+}
+
+// ⭐ NUEVO: addToMessageHistory agrega un mensaje al historial
+func (h *Hub) addToMessageHistory(messageBytes []byte) {
+	var msg Message
+	if err := json.Unmarshal(messageBytes, &msg); err != nil {
+		log.Printf("❌ Error parseando mensaje para historial: %v", err)
+		return
+	}
+
+	// Solo agregar mensajes de chat al historial (no mensajes del sistema de conexión/desconexión)
+	if msg.Type == MessageTypeMessage {
+		h.mu.Lock()
+		h.messageHistory = append(h.messageHistory, &msg)
+
+		// Mantener solo los últimos N mensajes
+		if len(h.messageHistory) > h.maxHistorySize {
+			// Eliminar el mensaje más antiguo
+			h.messageHistory = h.messageHistory[1:]
+		}
+		h.mu.Unlock()
+
+		log.Printf("📜 Mensaje agregado al historial. Total: %d mensajes", len(h.messageHistory))
 	}
 }
 
@@ -297,4 +359,23 @@ func (h *Hub) GetUserHistory() map[string]*UserStatus {
 		history[username] = &statusCopy
 	}
 	return history
+}
+
+// ⭐ NUEVO: GetMessageHistory devuelve el historial de mensajes (para debugging)
+func (h *Hub) GetMessageHistory() []*Message {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	// Crear copia del slice
+	history := make([]*Message, len(h.messageHistory))
+	copy(history, h.messageHistory)
+	return history
+}
+
+// ⭐ NUEVO: ClearMessageHistory limpia el historial de mensajes (para mantenimiento)
+func (h *Hub) ClearMessageHistory() {
+	h.mu.Lock()
+	h.messageHistory = make([]*Message, 0)
+	h.mu.Unlock()
+	log.Println("🗑️ Historial de mensajes limpiado")
 }
