@@ -23,7 +23,7 @@ type Hub struct {
 	// Historial de todos los usuarios que se han conectado
 	userHistory map[string]*UserStatus
 
-	// ⭐ NUEVO: Historial de mensajes recientes (últimos 50 mensajes)
+	// ⭐ NUEVO: Historial de mensajes para mantener conversación
 	messageHistory []*Message
 	maxHistorySize int
 
@@ -160,8 +160,8 @@ func (h *Hub) registerClient(client *Client) {
 		}
 	}
 
-	// ⭐ NUEVO: Enviar historial de mensajes recientes al cliente recién conectado
-	h.sendMessageHistory(client)
+	// ⭐ IMPORTANTE: NO enviar historial a nuevos usuarios
+	// Solo reciben mensajes desde el momento que se conectan
 
 	// Enviar lista de usuarios actualizada
 	h.broadcastUserList()
@@ -175,34 +175,6 @@ func (h *Hub) registerClient(client *Client) {
 	} else {
 		log.Printf("Error serializando mensaje de conexión: %v", err)
 	}
-}
-
-// ⭐ NUEVO: sendMessageHistory envía el historial de mensajes a un cliente específico
-func (h *Hub) sendMessageHistory(client *Client) {
-	h.mu.RLock()
-	historyCount := len(h.messageHistory)
-	h.mu.RUnlock()
-
-	if historyCount == 0 {
-		return
-	}
-
-	log.Printf("📜 Enviando historial de %d mensajes a '%s'", historyCount, client.username)
-
-	// Enviar cada mensaje del historial
-	h.mu.RLock()
-	for _, msg := range h.messageHistory {
-		if msgBytes, err := json.Marshal(msg); err == nil {
-			select {
-			case client.send <- msgBytes:
-				// Mensaje enviado exitosamente
-			default:
-				// Canal lleno, omitir mensaje
-				log.Printf("⚠️ Canal lleno, omitiendo mensaje del historial para '%s'", client.username)
-			}
-		}
-	}
-	h.mu.RUnlock()
 }
 
 // unregisterClient cancela el registro de un cliente del hub
@@ -243,7 +215,7 @@ func (h *Hub) unregisterClient(client *Client) {
 
 // broadcastMessage envía un mensaje a todos los clientes conectados
 func (h *Hub) broadcastMessage(message []byte) {
-	// ⭐ NUEVO: Agregar mensaje al historial antes de enviarlo
+	// ⭐ AGREGAR MENSAJE AL HISTORIAL PARA MANTENER CONVERSACIÓN
 	h.addToMessageHistory(message)
 
 	h.mu.RLock()
@@ -370,12 +342,4 @@ func (h *Hub) GetMessageHistory() []*Message {
 	history := make([]*Message, len(h.messageHistory))
 	copy(history, h.messageHistory)
 	return history
-}
-
-// ⭐ NUEVO: ClearMessageHistory limpia el historial de mensajes (para mantenimiento)
-func (h *Hub) ClearMessageHistory() {
-	h.mu.Lock()
-	h.messageHistory = make([]*Message, 0)
-	h.mu.Unlock()
-	log.Println("🗑️ Historial de mensajes limpiado")
 }

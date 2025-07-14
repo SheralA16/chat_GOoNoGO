@@ -127,27 +127,6 @@
             margin: 10px 0;
         }
 
-        /* Loading spinner para carga de imágenes */
-        .image-loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #198754;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% {
-                transform: rotate(0deg);
-            }
-
-            100% {
-                transform: rotate(360deg);
-            }
-        }
-
         .file-input-container {
             position: relative;
             display: inline-block;
@@ -351,7 +330,7 @@
                 this.connected = false;
                 this.users = new Map();
                 this.selectedImage = null;
-                this.messageHistory = []; // ⭐ ALMACENAR HISTORIAL LOCAL
+                this.messageHistory = []; // ⭐ HISTORIAL LOCAL PERSISTENTE
                 this.init();
             }
 
@@ -376,7 +355,7 @@
                     errorToastBody: document.getElementById('errorToastBody'),
                     successToast: document.getElementById('successToast'),
                     successToastBody: document.getElementById('successToastBody'),
-                    // ⭐ NUEVOS ELEMENTOS PARA IMÁGENES
+                    // ⭐ ELEMENTOS PARA IMÁGENES
                     imageInput: document.getElementById('imageInput'),
                     imageBtn: document.getElementById('imageBtn'),
                     imagePreview: document.getElementById('imagePreview'),
@@ -429,15 +408,12 @@
                     this.clearImageSelection();
                 });
 
-                // ⭐ PREVENIR CONGELAMIENTO DEL MODAL
+                // ⭐ MANEJO SEGURO DEL MODAL
                 this.elements.imageModal.addEventListener('hide.bs.modal', (e) => {
-                    // Asegurar que el modal se cierre correctamente
                     this.elements.modalImage.src = '';
                 });
 
-                // ⭐ MANEJO SEGURO DEL CIERRE DEL MODAL
                 this.elements.imageModal.addEventListener('hidden.bs.modal', () => {
-                    // Limpiar cualquier referencia que pueda causar memory leaks
                     this.elements.modalImage.src = '';
                     console.log('✅ Modal cerrado correctamente');
                 });
@@ -586,8 +562,8 @@
                             this.updateUsersList(data.users);
                         } else {
                             console.log('💬 Mensaje regular recibido');
-                            // ⭐ AGREGAR AL HISTORIAL LOCAL
-                            this.messageHistory.push(data);
+                            // ⭐ AGREGAR AL HISTORIAL LOCAL PERSISTENTE
+                            this.addToLocalHistory(data);
                             this.displayMessage(data);
                         }
                     } catch (error) {
@@ -609,7 +585,7 @@
                         this.updateConnectionDetails('warning', 'Desconectado del servidor');
                         this.toggleUI(false);
 
-                        // ⭐ MANTENER HISTORIAL DE MENSAJES
+                        // ⭐ MANTENER HISTORIAL AL DESCONECTAR
                         this.redisplayMessages();
                     }
                 };
@@ -620,9 +596,30 @@
                 };
             }
 
+            // ⭐ NUEVA FUNCIÓN PARA AGREGAR AL HISTORIAL LOCAL
+            addToLocalHistory(message) {
+                // Solo agregar mensajes normales (no del sistema de conexión)
+                if (message.type === 'message') {
+                    // Verificar si el mensaje ya existe (evitar duplicados)
+                    const exists = this.messageHistory.some(m =>
+                        m.timestamp === message.timestamp &&
+                        m.username === message.username &&
+                        m.content === message.content
+                    );
+
+                    if (!exists) {
+                        this.messageHistory.push(message);
+                        console.log(`📜 Mensaje agregado al historial local. Total: ${this.messageHistory.length}`);
+                    }
+                }
+            }
+
             // ⭐ NUEVA FUNCIÓN PARA RECARGAR MENSAJES DEL HISTORIAL
             redisplayMessages() {
                 console.log('🔄 Recargando mensajes del historial local');
+
+                // Guardar scroll position
+                const wasAtBottom = this.isScrolledToBottom();
 
                 // Limpiar área de mensajes
                 this.elements.messages.innerHTML = '';
@@ -642,6 +639,17 @@
                 this.messageHistory.forEach(message => {
                     this.displayMessage(message, false); // false = no agregar al historial otra vez
                 });
+
+                // Restaurar scroll position
+                if (wasAtBottom) {
+                    this.scrollToBottom();
+                }
+            }
+
+            // ⭐ VERIFICAR SI ESTÁ EN EL BOTTOM
+            isScrolledToBottom() {
+                const container = this.elements.messages;
+                return container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
             }
 
             handleConnectionSuccess(data) {
@@ -737,17 +745,8 @@
             // ⭐ FUNCIÓN MEJORADA PARA MOSTRAR MENSAJES
             displayMessage(message, addToHistory = true) {
                 // ⭐ AGREGAR AL HISTORIAL LOCAL (evitar duplicados)
-                if (addToHistory) {
-                    // Verificar si el mensaje ya está en el historial
-                    const exists = this.messageHistory.some(m =>
-                        m.timestamp === message.timestamp &&
-                        m.username === message.username &&
-                        m.content === message.content
-                    );
-
-                    if (!exists) {
-                        this.messageHistory.push(message);
-                    }
+                if (addToHistory && message.type === 'message') {
+                    this.addToLocalHistory(message);
                 }
 
                 const isOwn = message.username === this.username;
@@ -815,19 +814,6 @@
 
                 this.elements.messages.appendChild(messageElement);
                 this.scrollToBottom();
-            }
-
-            // ⭐ FUNCIÓN GLOBAL PARA MOSTRAR MODAL DE IMAGEN
-            showImageModal(imageSrc) {
-                try {
-                    this.elements.modalImage.src = imageSrc;
-                    const modal = new bootstrap.Modal(this.elements.imageModal);
-                    modal.show();
-                    console.log('🖼️ Modal de imagen abierto');
-                } catch (error) {
-                    console.error('❌ Error abriendo modal:', error);
-                    this.showErrorToast('Error mostrando imagen');
-                }
             }
 
             updateUsersList(users) {
