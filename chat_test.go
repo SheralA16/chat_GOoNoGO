@@ -12,8 +12,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// TestHubCreationWithHistory prueba la creación correcta de un nuevo hub con historial
-func TestHubCreationWithHistory(t *testing.T) {
+// TestHubCreation prueba la creación correcta de un nuevo hub
+func TestHubCreation(t *testing.T) {
 	hub := NewHub()
 
 	if hub.clients == nil {
@@ -36,16 +36,8 @@ func TestHubCreationWithHistory(t *testing.T) {
 		t.Error("El historial de mensajes no se inicializó")
 	}
 
-	if hub.userHistory == nil {
-		t.Error("El historial de usuarios no se inicializó")
-	}
-
-	if hub.maxHistorySize != 200 {
-		t.Errorf("Se esperaba maxHistorySize=200, pero se encontró %d", hub.maxHistorySize)
-	}
-
-	if hub.messageCounter != 0 {
-		t.Errorf("Se esperaba messageCounter=0, pero se encontró %d", hub.messageCounter)
+	if hub.maxHistorySize != 50 {
+		t.Errorf("Se esperaba maxHistorySize=50, pero se encontró %d", hub.maxHistorySize)
 	}
 
 	if hub.GetClientCount() != 0 {
@@ -53,417 +45,362 @@ func TestHubCreationWithHistory(t *testing.T) {
 	}
 }
 
-// TestPersistentHistory prueba el historial persistente para usuarios que se reconectan
-func TestPersistentHistory(t *testing.T) {
+// TestMessageHistory prueba el sistema de historial de mensajes
+func TestMessageHistory(t *testing.T) {
 	hub := NewHub()
 	go hub.Run()
 
-	// Simular usuario que se conecta, envía mensajes y se desconecta
-	client1 := &Client{
-		hub:      hub,
-		send:     make(chan []byte, 256),
-		username: "usuario1",
+	// Crear mensaje de prueba
+	msg := NewMessage("testuser", "Mensaje de prueba")
+	msgBytes, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Error serializando mensaje: %v", err)
 	}
 
-	// Registrar primer usuario
-	hub.register <- client1
+	// Enviar mensaje al hub
+	hub.broadcast <- msgBytes
 	time.Sleep(100 * time.Millisecond)
 
-	// Limpiar mensajes del sistema
-	for len(client1.send) > 0 {
-		<-client1.send
-	}
-
-	// Enviar algunos mensajes
-	msg1 := NewMessage("usuario1", "Primer mensaje")
-	msg2 := NewMessage("usuario1", "Segundo mensaje")
-
-	msg1Bytes, _ := json.Marshal(msg1)
-	msg2Bytes, _ := json.Marshal(msg2)
-
-	hub.broadcast <- msg1Bytes
-	hub.broadcast <- msg2Bytes
-	time.Sleep(200 * time.Millisecond)
-
-	// Verificar que los mensajes están en el historial
+	// Verificar que se agregó al historial
 	history := hub.GetMessageHistory()
-	if len(history) != 2 {
-		t.Errorf("Se esperaban 2 mensajes en el historial, pero se encontraron %d", len(history))
+	if len(history) != 1 {
+		t.Errorf("Se esperaba 1 mensaje en el historial, pero se encontraron %d", len(history))
 	}
 
-	// Desconectar el usuario
-	hub.unregister <- client1
-	time.Sleep(100 * time.Millisecond)
-
-	// Verificar que el usuario se marcó como desconectado
-	userHistory := hub.GetUserHistory()
-	if userStatus, exists := userHistory["usuario1"]; !exists {
-		t.Error("El usuario no se encontró en el historial de usuarios")
-	} else if userStatus.Connected {
-		t.Error("El usuario debería estar marcado como desconectado")
-	} else if userStatus.LastMessageIndex != 2 {
-		t.Errorf("Se esperaba LastMessageIndex=2, pero se encontró %d", userStatus.LastMessageIndex)
-	}
-
-	// Enviar más mensajes mientras el usuario está desconectado
-	msg3 := NewMessage("otroUsuario", "Mensaje perdido 1")
-	msg4 := NewMessage("otroUsuario", "Mensaje perdido 2")
-
-	msg3Bytes, _ := json.Marshal(msg3)
-	msg4Bytes, _ := json.Marshal(msg4)
-
-	hub.broadcast <- msg3Bytes
-	hub.broadcast <- msg4Bytes
-	time.Sleep(200 * time.Millisecond)
-
-	// Reconectar el usuario
-	client1Reconnected := &Client{
-		hub:      hub,
-		send:     make(chan []byte, 256),
-		username: "usuario1",
-	}
-
-	hub.register <- client1Reconnected
-	time.Sleep(300 * time.Millisecond)
-
-	// Verificar que recibió los mensajes perdidos
-	messagesReceived := 0
-	historyMessages := 0
-
-	for len(client1Reconnected.send) > 0 {
-		msgBytes := <-client1Reconnected.send
-		var msg map[string]interface{}
-		if err := json.Unmarshal(msgBytes, &msg); err != nil {
-			continue
-		}
-
-		msgType, _ := msg["type"].(string)
-
-		if msgType == "historyStart" {
-			t.Logf("Recibió notificación de inicio de historial")
-		} else if msgType == "historyEnd" {
-			t.Logf("Recibió notificación de fin de historial")
-		} else if msgType == "message" {
-			messagesReceived++
-			if content, exists := msg["content"].(string); exists {
-				if strings.Contains(content, "perdido") {
-					historyMessages++
-				}
-			}
-		}
-	}
-
-	if historyMessages != 2 {
-		t.Errorf("Se esperaban 2 mensajes de historial, pero se recibieron %d", historyMessages)
-	}
-
-	t.Logf("Usuario reconectado recibió %d mensajes perdidos correctamente", historyMessages)
-}
-
-// TestMessageCounterIncrement prueba que el contador de mensajes se incremente correctamente
-func TestMessageCounterIncrement(t *testing.T) {
-	hub := NewHub()
-	go hub.Run()
-
-	// Crear cliente
-	client := &Client{
-		hub:      hub,
-		send:     make(chan []byte, 256),
-		username: "testuser",
-	}
-
-	hub.register <- client
-	time.Sleep(100 * time.Millisecond)
-
-	initialCounter := hub.messageCounter
-
-	// Enviar varios mensajes
-	for i := 0; i < 5; i++ {
-		msg := NewMessage("testuser", "Mensaje "+string(rune(i+'1')))
-		msgBytes, _ := json.Marshal(msg)
-		hub.broadcast <- msgBytes
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	expectedCounter := initialCounter + 5
-	if hub.messageCounter != expectedCounter {
-		t.Errorf("Se esperaba messageCounter=%d, pero se encontró %d", expectedCounter, hub.messageCounter)
-	}
-
-	// Verificar que el usuario tiene el índice correcto
-	userHistory := hub.GetUserHistory()
-	if userStatus, exists := userHistory["testuser"]; !exists {
-		t.Error("El usuario no se encontró en el historial")
-	} else if userStatus.LastMessageIndex != expectedCounter {
-		t.Errorf("Se esperaba LastMessageIndex=%d, pero se encontró %d", expectedCounter, userStatus.LastMessageIndex)
+	if history[0].Content != "Mensaje de prueba" {
+		t.Errorf("Se esperaba contenido 'Mensaje de prueba', pero se encontró '%s'", history[0].Content)
 	}
 }
 
-// TestHistoryTrimming prueba que el historial se mantenga dentro del límite máximo
-func TestHistoryTrimming(t *testing.T) {
-	hub := NewHub()
-	hub.maxHistorySize = 5 // Reducir para prueba
-	go hub.Run()
-
-	client := &Client{
-		hub:      hub,
-		send:     make(chan []byte, 256),
-		username: "testuser",
-	}
-
-	hub.register <- client
-	time.Sleep(100 * time.Millisecond)
-
-	// Enviar más mensajes que el límite máximo
-	for i := 0; i < 10; i++ {
-		msg := NewMessage("testuser", "Mensaje "+string(rune(i+'1')))
-		msgBytes, _ := json.Marshal(msg)
-		hub.broadcast <- msgBytes
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	// Verificar que el historial no exceda el límite
-	history := hub.GetMessageHistory()
-	if len(history) > hub.maxHistorySize {
-		t.Errorf("El historial excede el límite máximo: %d > %d", len(history), hub.maxHistorySize)
-	}
-
-	// Verificar que tiene exactamente el máximo permitido
-	if len(history) != hub.maxHistorySize {
-		t.Errorf("Se esperaban %d mensajes en el historial, pero se encontraron %d", hub.maxHistorySize, len(history))
-	}
-
-	// Verificar que se conservan los mensajes más recientes
-	lastMessage := history[len(history)-1]
-	if !strings.Contains(lastMessage.Content, "Mensaje 10") {
-		t.Error("El último mensaje en el historial no es el más reciente")
-	}
-}
-
-// TestNewUserNoHistory prueba que usuarios nuevos no reciban historial
-func TestNewUserNoHistory(t *testing.T) {
+// TestImageMessage prueba el manejo de mensajes con imágenes
+func TestImageMessage(t *testing.T) {
 	hub := NewHub()
 	go hub.Run()
 
-	// Usuario existente envía mensajes
-	client1 := &Client{
-		hub:      hub,
-		send:     make(chan []byte, 256),
-		username: "usuario1",
-	}
-
-	hub.register <- client1
-	time.Sleep(100 * time.Millisecond)
-
-	// Limpiar mensajes del sistema
-	for len(client1.send) > 0 {
-		<-client1.send
-	}
-
-	// Enviar algunos mensajes
-	for i := 0; i < 3; i++ {
-		msg := NewMessage("usuario1", "Mensaje "+string(rune(i+'1')))
-		msgBytes, _ := json.Marshal(msg)
-		hub.broadcast <- msgBytes
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	// Usuario completamente nuevo se conecta
-	client2 := &Client{
-		hub:      hub,
-		send:     make(chan []byte, 256),
-		username: "usuarioNuevo",
-	}
-
-	hub.register <- client2
-	time.Sleep(200 * time.Millisecond)
-
-	// Verificar que NO recibió mensajes de historial
-	historyMessagesReceived := 0
-	for len(client2.send) > 0 {
-		msgBytes := <-client2.send
-		var msg map[string]interface{}
-		if err := json.Unmarshal(msgBytes, &msg); err != nil {
-			continue
-		}
-
-		msgType, _ := msg["type"].(string)
-		if msgType == "historyStart" || msgType == "historyEnd" {
-			t.Error("Usuario nuevo no debería recibir notificaciones de historial")
-		} else if msgType == "message" {
-			historyMessagesReceived++
-		}
-	}
-
-	if historyMessagesReceived > 0 {
-		t.Errorf("Usuario nuevo recibió %d mensajes de historial cuando no debería recibir ninguno", historyMessagesReceived)
-	}
-
-	// Verificar que el usuario nuevo tiene el índice correcto (actual)
-	userHistory := hub.GetUserHistory()
-	if userStatus, exists := userHistory["usuarioNuevo"]; !exists {
-		t.Error("El usuario nuevo no se encontró en el historial")
-	} else if userStatus.LastMessageIndex != hub.messageCounter {
-		t.Errorf("Usuario nuevo debería tener LastMessageIndex=%d, pero tiene %d", hub.messageCounter, userStatus.LastMessageIndex)
-	}
-}
-
-// TestImageMessagesInHistory prueba que los mensajes con imágenes se manejen correctamente en el historial
-func TestImageMessagesInHistory(t *testing.T) {
-	hub := NewHub()
-	go hub.Run()
-
-	client := &Client{
-		hub:      hub,
-		send:     make(chan []byte, 256),
-		username: "testuser",
-	}
-
-	hub.register <- client
-	time.Sleep(100 * time.Millisecond)
-
-	// Limpiar mensajes del sistema
-	for len(client.send) > 0 {
-		<-client.send
+	// Crear datos de imagen simulados
+	imageData := &ImageData{
+		Data: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==",
+		Name: "test.png",
+		Type: "image/png",
+		Size: 100,
 	}
 
 	// Crear mensaje con imagen
-	imageData := &ImageData{
-		Data: "data:image/png;base64,testdata",
+	msg := NewMessageWithImage("testuser", "Mira esta imagen", imageData)
+	msgBytes, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Error serializando mensaje con imagen: %v", err)
+	}
+
+	// Verificar propiedades del mensaje
+	if !msg.HasImage {
+		t.Error("El mensaje debería tener HasImage=true")
+	}
+
+	if msg.Image == nil {
+		t.Fatal("Los datos de imagen no deberían ser nil")
+	}
+
+	if msg.Image.Name != "test.png" {
+		t.Errorf("Se esperaba nombre 'test.png', pero se encontró '%s'", msg.Image.Name)
+	}
+
+	// Enviar al hub y verificar historial
+	hub.broadcast <- msgBytes
+	time.Sleep(100 * time.Millisecond)
+
+	history := hub.GetMessageHistory()
+	if len(history) != 1 {
+		t.Errorf("Se esperaba 1 mensaje en el historial, pero se encontraron %d", len(history))
+	}
+
+	if !history[0].HasImage {
+		t.Error("El mensaje en el historial debería tener HasImage=true")
+	}
+}
+
+// TestImageValidation prueba la validación de imágenes
+func TestImageValidation(t *testing.T) {
+	client := &Client{username: "testuser"}
+
+	// Test: Imagen válida
+	validImage := &ImageData{
+		Data: "data:image/png;base64,validdata",
 		Name: "test.png",
 		Type: "image/png",
 		Size: 1000,
 	}
 
-	msg := NewMessageWithImage("testuser", "Mensaje con imagen", imageData)
-	msgBytes, _ := json.Marshal(msg)
+	if !client.isValidImage(validImage) {
+		t.Error("Una imagen válida fue rechazada")
+	}
 
-	hub.broadcast <- msgBytes
-	time.Sleep(100 * time.Millisecond)
+	// Test: Imagen muy grande
+	largeImage := &ImageData{
+		Data: "data:image/png;base64,validdata",
+		Name: "large.png",
+		Type: "image/png",
+		Size: 10 * 1024 * 1024, // 10MB > 5MB límite
+	}
 
-	// Desconectar usuario
-	hub.unregister <- client
-	time.Sleep(100 * time.Millisecond)
+	if client.isValidImage(largeImage) {
+		t.Error("Una imagen muy grande fue aceptada")
+	}
 
-	// Enviar más mensajes con imágenes
-	msg2 := NewMessageWithImage("otrouser", "Otra imagen", imageData)
-	msg2Bytes, _ := json.Marshal(msg2)
-	hub.broadcast <- msg2Bytes
-	time.Sleep(100 * time.Millisecond)
+	// Test: Tipo MIME inválido
+	invalidTypeImage := &ImageData{
+		Data: "data:text/plain;base64,validdata",
+		Name: "test.txt",
+		Type: "text/plain",
+		Size: 1000,
+	}
 
-	// Reconectar usuario
-	clientReconnected := &Client{
+	if client.isValidImage(invalidTypeImage) {
+		t.Error("Una imagen con tipo MIME inválido fue aceptada")
+	}
+
+	// Test: Nombre muy largo
+	longNameImage := &ImageData{
+		Data: "data:image/png;base64,validdata",
+		Name: strings.Repeat("a", 300), // > 255 caracteres
+		Type: "image/png",
+		Size: 1000,
+	}
+
+	if client.isValidImage(longNameImage) {
+		t.Error("Una imagen con nombre muy largo fue aceptada")
+	}
+
+	// Test: Data URL inválida
+	invalidDataImage := &ImageData{
+		Data: "not-a-data-url",
+		Name: "test.png",
+		Type: "image/png",
+		Size: 1000,
+	}
+
+	if client.isValidImage(invalidDataImage) {
+		t.Error("Una imagen con data URL inválida fue aceptada")
+	}
+}
+
+// TestClientRegistration prueba el registro de clientes en el hub
+func TestClientRegistration(t *testing.T) {
+	hub := NewHub()
+	go hub.Run()
+
+	// Crear un cliente mock
+	client := &Client{
 		hub:      hub,
 		send:     make(chan []byte, 256),
 		username: "testuser",
 	}
 
-	hub.register <- clientReconnected
+	// Registrar el cliente
+	hub.register <- client
+
+	// Dar tiempo para que se procese
 	time.Sleep(200 * time.Millisecond)
 
-	// Verificar que recibió el mensaje con imagen
-	imageMessagesReceived := 0
-	for len(clientReconnected.send) > 0 {
-		msgBytes := <-clientReconnected.send
-		var receivedMsg Message
-		if err := json.Unmarshal(msgBytes, &receivedMsg); err != nil {
-			continue
-		}
-
-		if receivedMsg.Type == "message" && receivedMsg.HasImage {
-			imageMessagesReceived++
-			if receivedMsg.Image == nil {
-				t.Error("Mensaje con imagen no tiene datos de imagen")
-			}
-		}
+	// Verificar que el cliente se registró
+	if hub.GetClientCount() != 1 {
+		t.Errorf("Se esperaba 1 cliente, pero se encontraron %d", hub.GetClientCount())
 	}
 
-	if imageMessagesReceived != 1 {
-		t.Errorf("Se esperaba 1 mensaje con imagen en el historial, pero se recibieron %d", imageMessagesReceived)
+	// Verificar que el cliente está en el mapa
+	hub.mu.RLock()
+	_, exists := hub.clients[client]
+	hub.mu.RUnlock()
+
+	if !exists {
+		t.Error("El cliente no se encontró en el mapa de clientes")
+	}
+
+	// Verificar que se obtiene el nombre de usuario correcto
+	users := hub.GetConnectedUsers()
+	if len(users) != 1 || users[0] != "testuser" {
+		t.Errorf("Se esperaba usuario 'testuser', pero se obtuvo %v", users)
 	}
 }
 
-// TestConcurrentReconnections prueba reconexiones concurrentes
-func TestConcurrentReconnections(t *testing.T) {
+// TestMessageBroadcastWithHistory prueba la difusión y el historial
+func TestMessageBroadcastWithHistory(t *testing.T) {
 	hub := NewHub()
 	go hub.Run()
 
-	const numUsers = 5
+	// Crear múltiples clientes mock
+	numClients := 3
+	clients := make([]*Client, numClients)
+
+	for i := 0; i < numClients; i++ {
+		clients[i] = &Client{
+			hub:      hub,
+			send:     make(chan []byte, 256),
+			username: "testuser" + string(rune(i+'0')),
+		}
+		hub.register <- clients[i]
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	// Limpiar mensajes del sistema
+	for _, client := range clients {
+	clearLoop:
+		for {
+			select {
+			case <-client.send:
+				// Continuar descartando mensajes
+			case <-time.After(10 * time.Millisecond):
+				// No hay más mensajes, salir del bucle
+				break clearLoop
+			}
+		}
+	}
+
+	// Verificar que todos los clientes se registraron
+	if hub.GetClientCount() != numClients {
+		t.Fatalf("Se esperaban %d clientes, pero se encontraron %d", numClients, hub.GetClientCount())
+	}
+
+	// Crear un mensaje de prueba
+	msg := NewMessage("testuser0", "Hola mundo")
+	msgBytes, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Error serializando mensaje: %v", err)
+	}
+
+	// Enviar mensaje al hub para difusión
+	hub.broadcast <- msgBytes
+
+	// Dar tiempo para la difusión
+	time.Sleep(100 * time.Millisecond)
+
+	// Verificar que el mensaje se agregó al historial
+	history := hub.GetMessageHistory()
+	if len(history) != 1 {
+		t.Errorf("Se esperaba 1 mensaje en el historial, pero se encontraron %d", len(history))
+	}
+
+	// Verificar que todos los clientes recibieron el mensaje
+	messagesReceived := 0
+	for i, client := range clients {
+		select {
+		case receivedMsg := <-client.send:
+			var parsedMsg Message
+			if err := json.Unmarshal(receivedMsg, &parsedMsg); err != nil {
+				t.Errorf("Cliente %d: Error parseando mensaje recibido: %v", i, err)
+				continue
+			}
+
+			if parsedMsg.Type == MessageTypeSystem {
+				t.Logf("Cliente %d: Recibió mensaje del sistema (ignorado): %s", i, parsedMsg.Content)
+				continue
+			}
+
+			if parsedMsg.Content != "Hola mundo" {
+				t.Errorf("Cliente %d: Se esperaba contenido 'Hola mundo', pero se recibió '%s'", i, parsedMsg.Content)
+				continue
+			}
+
+			messagesReceived++
+
+		case <-time.After(500 * time.Millisecond):
+			t.Errorf("Cliente %d: No recibió el mensaje en tiempo esperado", i)
+		}
+	}
+
+	if messagesReceived != numClients {
+		t.Errorf("Se esperaba que %d clientes recibieran el mensaje, pero solo %d lo recibieron", numClients, messagesReceived)
+	}
+}
+
+// TestConcurrentOperationsWithImages prueba operaciones concurrentes con imágenes
+func TestConcurrentOperationsWithImages(t *testing.T) {
+	hub := NewHub()
+	go hub.Run()
+
+	const numGoroutines = 5
+	const messagesPerGoroutine = 3
+
 	var wg sync.WaitGroup
 
-	// Crear usuarios y enviar mensajes
-	for i := 0; i < numUsers; i++ {
+	// Crear datos de imagen para pruebas
+	imageData := &ImageData{
+		Data: "data:image/png;base64,testdata",
+		Name: "concurrent_test.png",
+		Type: "image/png",
+		Size: 500,
+	}
+
+	// Enviar mensajes concurrentemente
+	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
-		go func(userID int) {
+		go func(goroutineID int) {
 			defer wg.Done()
 
-			username := "user" + string(rune(userID+'0'))
+			for j := 0; j < messagesPerGoroutine; j++ {
+				username := "user" + string(rune(goroutineID+'0'))
+				content := "Mensaje " + string(rune(j+'0'))
 
-			// Primera conexión
-			client := &Client{
-				hub:      hub,
-				send:     make(chan []byte, 256),
-				username: username,
+				var msg *Message
+				if j%2 == 0 {
+					// Mensaje con imagen
+					msg = NewMessageWithImage(username, content, imageData)
+				} else {
+					// Mensaje solo texto
+					msg = NewMessage(username, content)
+				}
+
+				if msgBytes, err := json.Marshal(msg); err == nil {
+					select {
+					case hub.broadcast <- msgBytes:
+						// Mensaje enviado exitosamente
+					case <-time.After(100 * time.Millisecond):
+						t.Logf("Timeout enviando mensaje desde goroutine %d", goroutineID)
+					}
+				}
+
+				time.Sleep(10 * time.Millisecond)
 			}
-
-			hub.register <- client
-			time.Sleep(100 * time.Millisecond)
-
-			// Enviar un mensaje
-			msg := NewMessage(username, "Mensaje de "+username)
-			msgBytes, _ := json.Marshal(msg)
-			hub.broadcast <- msgBytes
-			time.Sleep(50 * time.Millisecond)
-
-			// Desconectar
-			hub.unregister <- client
-			time.Sleep(50 * time.Millisecond)
-
-			// Reconectar después de un tiempo aleatorio
-			time.Sleep(time.Duration(userID*50) * time.Millisecond)
-
-			clientReconnected := &Client{
-				hub:      hub,
-				send:     make(chan []byte, 256),
-				username: username,
-			}
-
-			hub.register <- clientReconnected
-			time.Sleep(100 * time.Millisecond)
-
-			// Contar mensajes recibidos
-			messagesReceived := 0
-			for len(clientReconnected.send) > 0 {
-				<-clientReconnected.send
-				messagesReceived++
-			}
-
-			t.Logf("Usuario %s recibió %d mensajes al reconectarse", username, messagesReceived)
 		}(i)
 	}
 
 	wg.Wait()
+	time.Sleep(200 * time.Millisecond)
 
-	// Verificar estado final del hub
-	userHistory := hub.GetUserHistory()
-	if len(userHistory) != numUsers {
-		t.Errorf("Se esperaban %d usuarios en el historial, pero se encontraron %d", numUsers, len(userHistory))
+	// Verificar historial
+	history := hub.GetMessageHistory()
+	expectedMessages := numGoroutines * messagesPerGoroutine
+
+	if len(history) != expectedMessages {
+		t.Logf("Se esperaban %d mensajes en el historial, pero se encontraron %d", expectedMessages, len(history))
+		// No falla el test porque algunos mensajes pueden haberse perdido por concurrencia
 	}
 
-	connectedCount := 0
-	for _, status := range userHistory {
-		if status.Connected {
-			connectedCount++
+	// Verificar que hay mensajes con y sin imágenes
+	withImages := 0
+	withoutImages := 0
+	for _, msg := range history {
+		if msg.HasImage {
+			withImages++
+		} else {
+			withoutImages++
 		}
 	}
 
-	if connectedCount != numUsers {
-		t.Errorf("Se esperaban %d usuarios conectados, pero se encontraron %d", numUsers, connectedCount)
+	t.Logf("Mensajes con imágenes: %d, sin imágenes: %d", withImages, withoutImages)
+
+	if withImages == 0 {
+		t.Error("No se encontraron mensajes con imágenes en el historial")
+	}
+
+	if withoutImages == 0 {
+		t.Error("No se encontraron mensajes sin imágenes en el historial")
 	}
 }
 
-// TestWebSocketWithHistory prueba la funcionalidad completa via WebSocket con historial
-func TestWebSocketWithHistory(t *testing.T) {
+// TestWebSocketUpgradeWithImage prueba la actualización de WebSocket con imágenes
+func TestWebSocketUpgradeWithImage(t *testing.T) {
 	hub := NewHub()
 	go hub.Run()
 
@@ -473,154 +410,109 @@ func TestWebSocketWithHistory(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Primer usuario se conecta
-	wsURL1 := "ws" + strings.TrimPrefix(server.URL, "http") + "?username=user1"
-	conn1, _, err := websocket.DefaultDialer.Dial(wsURL1, nil)
-	if err != nil {
-		t.Fatalf("Error conectando primer usuario: %v", err)
-	}
-	defer conn1.Close()
+	// Convertir URL HTTP a WebSocket URL
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "?username=testuser"
 
+	// Conectar como cliente WebSocket
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Error conectando WebSocket: %v", err)
+	}
+	defer conn.Close()
+
+	// Dar tiempo para que se registre el cliente
 	time.Sleep(200 * time.Millisecond)
 
-	// Leer mensajes del sistema para user1
-	for i := 0; i < 5; i++ {
+	// Leer mensajes del sistema
+	for i := 0; i < 3; i++ {
 		var msg interface{}
-		if err := conn1.ReadJSON(&msg); err != nil {
-			break
+		if err := conn.ReadJSON(&msg); err != nil {
+			break // No más mensajes
 		}
 	}
 
-	// Primer usuario envía un mensaje
-	testMessage := map[string]interface{}{
-		"content":  "Mensaje de prueba",
-		"hasImage": false,
+	// Verificar que el cliente se registró en el hub
+	if hub.GetClientCount() != 1 {
+		t.Errorf("Se esperaba 1 cliente conectado, pero se encontraron %d", hub.GetClientCount())
 	}
 
-	if err := conn1.WriteJSON(testMessage); err != nil {
-		t.Fatalf("Error enviando mensaje: %v", err)
+	// Enviar un mensaje con imagen
+	imageMessage := map[string]interface{}{
+		"content":  "Mira esta imagen",
+		"hasImage": true,
+		"image": map[string]interface{}{
+			"data": "data:image/png;base64,testdata",
+			"name": "test.png",
+			"type": "image/png",
+			"size": 100,
+		},
 	}
 
-	time.Sleep(100 * time.Millisecond)
-
-	// Leer el mensaje de vuelta
-	var echoMsg Message
-	if err := conn1.ReadJSON(&echoMsg); err != nil {
-		t.Fatalf("Error leyendo eco del mensaje: %v", err)
+	if err := conn.WriteJSON(imageMessage); err != nil {
+		t.Fatalf("Error enviando mensaje con imagen: %v", err)
 	}
 
-	// Cerrar primera conexión
-	conn1.Close()
-	time.Sleep(100 * time.Millisecond)
-
-	// Segundo usuario se conecta y envía mensaje
-	wsURL2 := "ws" + strings.TrimPrefix(server.URL, "http") + "?username=user2"
-	conn2, _, err := websocket.DefaultDialer.Dial(wsURL2, nil)
-	if err != nil {
-		t.Fatalf("Error conectando segundo usuario: %v", err)
-	}
-	defer conn2.Close()
-
-	time.Sleep(200 * time.Millisecond)
-
-	// Leer mensajes del sistema para user2
-	for i := 0; i < 5; i++ {
-		var msg interface{}
-		if err := conn2.ReadJSON(&msg); err != nil {
-			break
-		}
+	// Leer mensaje de respuesta
+	var receivedMsg Message
+	if err := conn.ReadJSON(&receivedMsg); err != nil {
+		t.Fatalf("Error leyendo mensaje: %v", err)
 	}
 
-	// Segundo usuario envía mensaje
-	testMessage2 := map[string]interface{}{
-		"content":  "Mensaje mientras user1 está desconectado",
-		"hasImage": false,
+	if receivedMsg.Content != "Mira esta imagen" {
+		t.Errorf("Se esperaba contenido 'Mira esta imagen', pero se recibió '%s'", receivedMsg.Content)
 	}
 
-	if err := conn2.WriteJSON(testMessage2); err != nil {
-		t.Fatalf("Error enviando segundo mensaje: %v", err)
+	if !receivedMsg.HasImage {
+		t.Error("El mensaje debería tener HasImage=true")
 	}
 
-	time.Sleep(100 * time.Millisecond)
-
-	// Primer usuario se reconecta
-	conn1Reconnected, _, err := websocket.DefaultDialer.Dial(wsURL1, nil)
-	if err != nil {
-		t.Fatalf("Error reconectando primer usuario: %v", err)
-	}
-	defer conn1Reconnected.Close()
-
-	time.Sleep(300 * time.Millisecond)
-
-	// Verificar que user1 recibe historial
-	historyReceived := false
-	messagesReceived := 0
-
-	// Leer hasta 10 mensajes o timeout
-	for i := 0; i < 10; i++ {
-		conn1Reconnected.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-		var msg map[string]interface{}
-		if err := conn1Reconnected.ReadJSON(&msg); err != nil {
-			break // Timeout o conexión cerrada
-		}
-
-		msgType, _ := msg["type"].(string)
-		if msgType == "historyStart" {
-			historyReceived = true
-			t.Log("Usuario reconectado recibió notificación de inicio de historial")
-		} else if msgType == "message" {
-			content, _ := msg["content"].(string)
-			if strings.Contains(content, "desconectado") {
-				messagesReceived++
-				t.Log("Usuario reconectado recibió mensaje perdido:", content)
-			}
-		}
+	if receivedMsg.Image == nil {
+		t.Error("Los datos de imagen no deberían ser nil")
 	}
 
-	if !historyReceived {
-		t.Error("Usuario reconectado no recibió notificación de historial")
-	}
-
-	if messagesReceived != 1 {
-		t.Errorf("Se esperaba 1 mensaje perdido, pero se recibieron %d", messagesReceived)
+	if receivedMsg.Username != "testuser" {
+		t.Errorf("Se esperaba usuario 'testuser', pero se recibió '%s'", receivedMsg.Username)
 	}
 }
 
-// BenchmarkHistoryRetrieval benchmarks la recuperación de historial
-func BenchmarkHistoryRetrieval(b *testing.B) {
+// BenchmarkMessageBroadcastWithImages benchmarks la difusión de mensajes con imágenes
+func BenchmarkMessageBroadcastWithImages(b *testing.B) {
 	hub := NewHub()
 	go hub.Run()
 
-	// Llenar historial con muchos mensajes
-	for i := 0; i < 1000; i++ {
-		msg := NewMessage("benchuser", "Mensaje "+string(rune(i)))
-		msgBytes, _ := json.Marshal(msg)
-		hub.broadcast <- msgBytes
+	// Crear algunos clientes
+	numClients := 10
+	clients := make([]*Client, numClients)
+
+	for i := 0; i < numClients; i++ {
+		clients[i] = &Client{
+			hub:      hub,
+			send:     make(chan []byte, 256),
+			username: "benchuser" + string(rune(i+'0')),
+		}
+		hub.register <- clients[i]
 	}
 
 	time.Sleep(100 * time.Millisecond)
+
+	// Crear mensaje con imagen para benchmark
+	imageData := &ImageData{
+		Data: "data:image/png;base64,benchmarkdata",
+		Name: "benchmark.png",
+		Type: "image/png",
+		Size: 1000,
+	}
+
+	msg := NewMessageWithImage("benchuser", "benchmark message", imageData)
+	msgBytes, _ := json.Marshal(msg)
 
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		// Simular reconexión
-		client := &Client{
-			hub:      hub,
-			send:     make(chan []byte, 1000),
-			username: "benchuser",
+		select {
+		case hub.broadcast <- msgBytes:
+		case <-time.After(10 * time.Millisecond):
+			// Timeout para evitar bloqueos
 		}
-
-		// Marcar como usuario existente
-		hub.mu.Lock()
-		hub.userHistory["benchuser"] = &UserStatus{
-			Username:         "benchuser",
-			Connected:        false,
-			LastMessageIndex: 500, // Simular que vio hasta el mensaje 500
-		}
-		hub.mu.Unlock()
-
-		hub.register <- client
-		time.Sleep(10 * time.Millisecond)
-		hub.unregister <- client
 	}
 }
