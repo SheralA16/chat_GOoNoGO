@@ -83,7 +83,6 @@
             font-weight: 600;
         }
 
-        /* ⭐ NUEVOS ESTILOS PARA IMÁGENES */
         .message-image {
             max-width: 300px;
             max-height: 200px;
@@ -278,7 +277,7 @@
         </div>
     </div>
 
-    <!-- ⭐ MODAL PARA VER IMÁGENES EN GRANDE -->
+    <!-- Modal para ver imágenes en grande -->
     <div class="modal fade image-modal" id="imageModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-xl modal-dialog-centered">
             <div class="modal-content">
@@ -330,7 +329,8 @@
                 this.connected = false;
                 this.users = new Map();
                 this.selectedImage = null;
-                this.messageHistory = []; // ⭐ HISTORIAL LOCAL PERSISTENTE
+                this.messageHistory = []; // Historial local persistente
+                this.messageCounter = 0; // ✅ NUEVO: Contador para IDs únicos
                 this.init();
             }
 
@@ -355,7 +355,6 @@
                     errorToastBody: document.getElementById('errorToastBody'),
                     successToast: document.getElementById('successToast'),
                     successToastBody: document.getElementById('successToastBody'),
-                    // ⭐ ELEMENTOS PARA IMÁGENES
                     imageInput: document.getElementById('imageInput'),
                     imageBtn: document.getElementById('imageBtn'),
                     imagePreview: document.getElementById('imagePreview'),
@@ -368,7 +367,6 @@
 
                 this.setupEventListeners();
 
-                // Mensaje de bienvenida en consola
                 console.log('💚 Chat desarrollado por JUNIOR_ALVINES');
                 console.log('🔗 GitHub: github.com/JUNMPI/realtime-chat');
             }
@@ -390,12 +388,10 @@
                     this.updateSendButton();
                 });
 
-                // Limpiar errores cuando el usuario escriba
                 this.elements.usernameInput.addEventListener('input', () => {
                     this.clearUsernameError();
                 });
 
-                // ⭐ EVENTOS PARA IMÁGENES
                 this.elements.imageBtn.addEventListener('click', () => {
                     this.elements.imageInput.click();
                 });
@@ -408,7 +404,6 @@
                     this.clearImageSelection();
                 });
 
-                // ⭐ MANEJO SEGURO DEL MODAL
                 this.elements.imageModal.addEventListener('hide.bs.modal', (e) => {
                     this.elements.modalImage.src = '';
                 });
@@ -419,32 +414,27 @@
                 });
             }
 
-            // ⭐ FUNCIÓN PARA ACTUALIZAR EL BOTÓN DE ENVÍO
             updateSendButton() {
                 const hasText = this.elements.messageInput.value.trim().length > 0;
                 const hasImage = this.selectedImage !== null;
                 this.elements.sendBtn.disabled = !hasText && !hasImage;
             }
 
-            // ⭐ MANEJO DE SELECCIÓN DE IMÁGENES
             handleImageSelection(event) {
                 const file = event.target.files[0];
                 if (!file) return;
 
-                // Validar tipo de archivo
                 if (!file.type.startsWith('image/')) {
                     this.showErrorToast('Por favor selecciona un archivo de imagen válido');
                     return;
                 }
 
-                // Validar tamaño (máximo 5MB)
                 const maxSize = 5 * 1024 * 1024; // 5MB
                 if (file.size > maxSize) {
                     this.showErrorToast('La imagen es muy grande. Máximo 5MB permitido');
                     return;
                 }
 
-                // Leer archivo como Data URL
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     this.selectedImage = {
@@ -454,7 +444,6 @@
                         type: file.type
                     };
 
-                    // Mostrar preview
                     this.showImagePreview();
                     this.updateSendButton();
                 };
@@ -466,7 +455,6 @@
                 reader.readAsDataURL(file);
             }
 
-            // ⭐ MOSTRAR PREVIEW DE IMAGEN
             showImagePreview() {
                 if (!this.selectedImage) return;
 
@@ -475,7 +463,6 @@
                 this.elements.imagePreviewContainer.classList.remove('d-none');
             }
 
-            // ⭐ LIMPIAR SELECCIÓN DE IMAGEN
             clearImageSelection() {
                 this.selectedImage = null;
                 this.elements.imageInput.value = '';
@@ -484,7 +471,6 @@
                 this.updateSendButton();
             }
 
-            // ⭐ FORMATEAR TAMAÑO DE ARCHIVO
             formatFileSize(bytes) {
                 if (bytes === 0) return '0 Bytes';
                 const k = 1024;
@@ -496,7 +482,6 @@
             connect() {
                 const username = this.elements.usernameInput.value.trim();
 
-                // Validaciones en el frontend
                 if (!username) {
                     this.showUsernameError('Por favor, ingresa tu nombre de usuario');
                     return;
@@ -520,13 +505,11 @@
                 this.username = username;
                 console.log('🔌 Conectando como:', username);
 
-                // Mostrar estado de conexión
                 this.updateStatus('connecting', 'Conectando...');
                 this.updateConnectionDetails('info', 'Verificando nombre de usuario...');
                 this.elements.connectBtn.disabled = true;
                 this.elements.connectBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Conectando...';
 
-                // ⭐ RAILWAY: Detectar protocolo automáticamente
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const wsURL = `${protocol}//${window.location.host}/ws?username=${encodeURIComponent(username)}`;
 
@@ -544,7 +527,6 @@
                     try {
                         const data = JSON.parse(event.data);
 
-                        // Manejar diferentes tipos de mensajes
                         if (data.type === 'error') {
                             console.error('❌ Error del servidor:', data.message);
                             this.handleConnectionError(data.message);
@@ -562,31 +544,26 @@
                             this.updateUsersList(data.users);
                         } else {
                             console.log('💬 Mensaje regular recibido');
-                            // ⭐ AGREGAR AL HISTORIAL LOCAL PERSISTENTE
-                            this.addToLocalHistory(data);
-                            this.displayMessage(data);
+                            // ✅ ARREGLO PRINCIPAL: Solo agregar al historial si NO está ya
+                            this.addToLocalHistoryIfNew(data);
+                            this.displayMessage(data, false); // false = no agregar al historial otra vez
                         }
                     } catch (error) {
                         console.error('❌ Error parseando mensaje:', error);
                     }
                 };
 
-                // ⭐ MANEJO MEJORADO DE CIERRE DE CONEXIÓN
                 this.socket.onclose = (event) => {
                     console.log('🔌 WebSocket cerrado, código:', event.code, 'razón:', event.reason);
 
                     if (!this.connected) {
-                        // Si no se había conectado exitosamente, fue un error
                         this.handleConnectionError('No se pudo conectar al servidor');
                     } else {
-                        // Desconexión normal
                         this.connected = false;
                         this.updateStatus('disconnected', 'Desconectado');
                         this.updateConnectionDetails('warning', 'Desconectado del servidor');
                         this.toggleUI(false);
-
-                        // ⭐ MANTENER HISTORIAL AL DESCONECTAR
-                        this.redisplayMessages();
+                        // ✅ NO volver a mostrar mensajes aquí, ya están en pantalla
                     }
                 };
 
@@ -596,60 +573,34 @@
                 };
             }
 
-            // ⭐ NUEVA FUNCIÓN PARA AGREGAR AL HISTORIAL LOCAL
-            addToLocalHistory(message) {
-                // Solo agregar mensajes normales (no del sistema de conexión)
-                if (message.type === 'message') {
-                    // Verificar si el mensaje ya existe (evitar duplicados)
-                    const exists = this.messageHistory.some(m =>
-                        m.timestamp === message.timestamp &&
-                        m.username === message.username &&
-                        m.content === message.content
-                    );
+            // ✅ NUEVA FUNCIÓN: Solo agregar si el mensaje es nuevo
+            addToLocalHistoryIfNew(message) {
+                if (message.type !== 'message') return; // Solo mensajes normales
 
-                    if (!exists) {
-                        this.messageHistory.push(message);
-                        console.log(`📜 Mensaje agregado al historial local. Total: ${this.messageHistory.length}`);
-                    }
+                // Crear ID único para el mensaje basado en contenido, usuario y timestamp
+                const messageId = this.generateMessageId(message);
+
+                // Verificar si ya existe
+                const exists = this.messageHistory.some(m =>
+                    this.generateMessageId(m) === messageId
+                );
+
+                if (!exists) {
+                    this.messageHistory.push(message);
+                    console.log(`📜 Mensaje agregado al historial local. Total: ${this.messageHistory.length}`);
+                } else {
+                    console.log('📜 Mensaje ya existe en historial, no se agrega duplicado');
                 }
             }
 
-            // ⭐ NUEVA FUNCIÓN PARA RECARGAR MENSAJES DEL HISTORIAL
-            redisplayMessages() {
-                console.log('🔄 Recargando mensajes del historial local');
+            // ✅ NUEVA FUNCIÓN: Generar ID único para cada mensaje
+            generateMessageId(message) {
+                // Combinar campos únicos para crear ID
+                const content = message.content || '';
+                const imageData = message.image ? message.image.data.substring(0, 50) : ''; // Solo primeros 50 chars de imagen
+                const hasImage = message.hasImage ? '1' : '0';
 
-                // Guardar scroll position
-                const wasAtBottom = this.isScrolledToBottom();
-
-                // Limpiar área de mensajes
-                this.elements.messages.innerHTML = '';
-
-                if (this.messageHistory.length === 0) {
-                    this.elements.messages.innerHTML = `
-                        <div class="text-center text-muted">
-                            <i class="bi bi-chat-dots fs-1"></i>
-                            <p>No hay mensajes aún. ¡Sé el primero en escribir!</p>
-                            <small>Chat desarrollado por JUNIOR_ALVINES & SheralA16</small>
-                        </div>
-                    `;
-                    return;
-                }
-
-                // Volver a mostrar todos los mensajes del historial
-                this.messageHistory.forEach(message => {
-                    this.displayMessage(message, false); // false = no agregar al historial otra vez
-                });
-
-                // Restaurar scroll position
-                if (wasAtBottom) {
-                    this.scrollToBottom();
-                }
-            }
-
-            // ⭐ VERIFICAR SI ESTÁ EN EL BOTTOM
-            isScrolledToBottom() {
-                const container = this.elements.messages;
-                return container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
+                return `${message.username}-${message.timestamp}-${content}-${hasImage}-${imageData}`;
             }
 
             handleConnectionSuccess(data) {
@@ -659,10 +610,8 @@
                 this.toggleUI(true);
                 this.addSystemMessage(`Te has conectado al chat como "${data.username}"`);
 
-                // Mostrar toast de éxito
                 this.showSuccessToast(`¡Conectado exitosamente como ${data.username}!`);
 
-                // Restaurar botón
                 this.elements.connectBtn.disabled = false;
                 this.elements.connectBtn.innerHTML = '<i class="bi bi-rocket-takeoff"></i> GO!';
             }
@@ -670,24 +619,20 @@
             handleConnectionError(errorMessage) {
                 console.error('❌ Error de conexión:', errorMessage);
 
-                // Mostrar toast de error
                 this.showErrorToast(errorMessage);
 
-                // Restaurar interfaz
                 this.connected = false;
                 this.updateStatus('error', 'Error de conexión');
                 this.updateConnectionDetails('danger', errorMessage);
                 this.elements.connectBtn.disabled = false;
                 this.elements.connectBtn.innerHTML = '<i class="bi bi-rocket-takeoff"></i> GO!';
 
-                // Manejar error de nombre duplicado
                 if (errorMessage.includes('ya está en uso')) {
                     this.showUsernameError('Este nombre ya está en uso. Elige otro.');
                     this.elements.usernameInput.value = '';
                     this.elements.usernameInput.focus();
                 }
 
-                // Cerrar socket si existe
                 if (this.socket) {
                     this.socket.close();
                     this.socket = null;
@@ -700,13 +645,11 @@
                 }
             }
 
-            // ⭐ FUNCIÓN MEJORADA PARA ENVIAR MENSAJES
             sendMessage() {
                 if (!this.connected) return;
 
                 const textContent = this.elements.messageInput.value.trim();
 
-                // Debe tener texto o imagen
                 if (!textContent && !this.selectedImage) {
                     return;
                 }
@@ -716,7 +659,6 @@
                     hasImage: !!this.selectedImage
                 };
 
-                // Si hay imagen, incluir datos
                 if (this.selectedImage) {
                     messageData.image = {
                         data: this.selectedImage.data,
@@ -726,11 +668,9 @@
                     };
                 }
 
-                // Enviar mensaje
                 try {
                     this.socket.send(JSON.stringify(messageData));
 
-                    // Limpiar inputs
                     this.elements.messageInput.value = '';
                     this.clearImageSelection();
                     this.updateSendButton();
@@ -742,13 +682,8 @@
                 }
             }
 
-            // ⭐ FUNCIÓN MEJORADA PARA MOSTRAR MENSAJES
+            // ✅ FUNCIÓN CORREGIDA: displayMessage más robusta
             displayMessage(message, addToHistory = true) {
-                // ⭐ AGREGAR AL HISTORIAL LOCAL (evitar duplicados)
-                if (addToHistory && message.type === 'message') {
-                    this.addToLocalHistory(message);
-                }
-
                 const isOwn = message.username === this.username;
                 const isSystem = message.type === 'system' || message.type === 'join' || message.type === 'leave';
 
@@ -775,7 +710,6 @@
 
                     let messageContent = '';
 
-                    // ⭐ MOSTRAR IMAGEN SI EXISTE
                     if (message.image && message.image.data) {
                         messageContent += `
                             <div class="mb-2">
@@ -791,7 +725,6 @@
                         `;
                     }
 
-                    // ⭐ MOSTRAR TEXTO SI EXISTE
                     if (message.content && message.content.trim()) {
                         messageContent += `<div>${this.escapeHtml(message.content)}</div>`;
                     }
@@ -807,8 +740,9 @@
                     `;
                 }
 
-                // Limpiar mensaje de bienvenida si existe
-                if (this.elements.messages.querySelector('.text-muted')) {
+                // ✅ VERIFICAR SI NECESITAMOS LIMPIAR EL MENSAJE DE BIENVENIDA
+                const welcomeMessage = this.elements.messages.querySelector('.text-muted');
+                if (welcomeMessage && welcomeMessage.closest('.text-center')) {
                     this.elements.messages.innerHTML = '';
                 }
 
@@ -833,9 +767,7 @@
                 const connectedUsers = users.filter(user => user.connected);
                 const disconnectedUsers = users.filter(user => !user.connected);
 
-                // Agregar usuarios conectados
                 connectedUsers.forEach(user => this.addUserToList(user));
-                // Agregar usuarios desconectados
                 disconnectedUsers.forEach(user => this.addUserToList(user));
 
                 this.updateOnlineCount(connectedUsers.length);
@@ -904,7 +836,7 @@
                     timestamp: new Date().toISOString(),
                     type: 'system'
                 };
-                this.displayMessage(systemMessage);
+                this.displayMessage(systemMessage, false); // No agregar al historial
             }
 
             updateStatus(statusType, text) {
@@ -937,7 +869,6 @@
                     this.elements.messageSection.classList.add('d-none');
                     this.elements.usernameInput.focus();
 
-                    // Limpiar lista de usuarios
                     this.elements.usersList.innerHTML = `
                         <div class="text-center text-muted py-4">
                             <i class="bi bi-person-x fs-1"></i>
@@ -982,7 +913,7 @@
             }
         }
 
-        // ⭐ FUNCIÓN GLOBAL PARA EL MODAL (ACCESIBLE DESDE ONCLICK)
+        // Función global para el modal
         window.showImageModal = function (imageSrc) {
             try {
                 const modalImage = document.getElementById('modalImage');
@@ -991,17 +922,17 @@
                 modalImage.src = imageSrc;
                 const modal = new bootstrap.Modal(imageModal);
                 modal.show();
-                console.log('🖼️ Modal de imagen abierto desde función global');
+                console.log('🖼️ Modal de imagen abierto');
             } catch (error) {
-                console.error('❌ Error abriendo modal desde función global:', error);
+                console.error('❌ Error abriendo modal:', error);
             }
         };
 
         // Inicializar cuando el DOM esté listo
         document.addEventListener('DOMContentLoaded', () => {
             console.log('🎬 DOM cargado, iniciando GO O NO GO Chat...');
-            console.log('👨‍💻 Desarrollado por JUNIOR_ALVINES');
-            window.chatClient = new ChatClient(); // ⭐ HACER GLOBAL PARA DEBUGGING
+            console.log('👨‍💻 Desarrollado por JUNIOR_ALVINES & SheralA16');
+            window.chatClient = new ChatClient();
         });
     </script>
 </body>
