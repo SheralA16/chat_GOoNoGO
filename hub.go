@@ -13,6 +13,10 @@ type UserStatus struct {
 	Connected   bool      `json:"connected"`
 	LastSeen    time.Time `json:"lastSeen"`
 	ConnectedAt time.Time `json:"connectedAt"`
+	// ⭐ NUEVO: Timestamp del último mensaje que vio
+	LastMessageSeen time.Time `json:"lastMessageSeen"`
+	// ⭐ NUEVO: Indica si es la primera vez que se conecta
+	IsFirstTime bool `json:"isFirstTime"`
 }
 
 // Hub mantiene el conjunto de clientes activos y difunde mensajes a los clientes
@@ -23,9 +27,10 @@ type Hub struct {
 	// Historial de todos los usuarios que se han conectado
 	userHistory map[string]*UserStatus
 
-	// ⭐ NUEVO: Historial de mensajes para mantener conversación
+	// ⭐ NUEVO: Historial persistente de mensajes con timestamps
 	messageHistory []*Message
 	maxHistorySize int
+	maxHistoryAge  time.Duration // Tiempo máximo que guardamos mensajes
 
 	// Mensajes entrantes de los clientes para difundir
 	broadcast chan []byte
@@ -48,33 +53,63 @@ func NewHub() *Hub {
 		unregister:     make(chan *Client, 100),
 		clients:        make(map[*Client]bool),
 		userHistory:    make(map[string]*UserStatus),
-		messageHistory: make([]*Message, 0), // ⭐ AÑADIDO
-		maxHistorySize: 50,                  // ⭐ AÑADIDO
+		messageHistory: make([]*Message, 0),
+		maxHistorySize: 100,            // Mantener últimos 100 mensajes
+		maxHistoryAge:  24 * time.Hour, // Mantener mensajes por 24 horas
 	}
 }
 
 // Run inicia el loop principal del hub
 func (h *Hub) Run() {
-	log.Println("🚀 Hub iniciado, esperando conexiones...")
+	log.Println("🚀 Hub iniciado con soporte para mensajes perdidos...")
+
+	// Limpiar mensajes antiguos cada hora
+	go h.cleanupOldMessages()
 
 	for {
 		select {
 		case client := <-h.register:
-			h.registerClient(client)
+			h.registerClient(client) //nuevo usuario
 
 		case client := <-h.unregister:
-			h.unregisterClient(client)
+			h.unregisterClient(client) //usuario desconectado
 
 		case message := <-h.broadcast:
-			h.broadcastMessage(message)
+			h.broadcastMessage(message) //mensaje entrante
 		}
 	}
 }
 
-// isUsernameAvailable verifica si un nombre de usuario está disponible
+// cleanupOldMessages elimina mensajes antiguos periódicamente
+func (h *Hub) cleanupOldMessages() {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		h.mu.Lock()
+		cutoff := time.Now().Add(-h.maxHistoryAge)
+		newHistory := make([]*Message, 0)
+
+		for _, msg := range h.messageHistory {
+			if msg.Timestamp.After(cutoff) {
+				newHistory = append(newHistory, msg)
+			}
+		}
+
+		cleaned := len(h.messageHistory) - len(newHistory)
+		h.messageHistory = newHistory
+		h.mu.Unlock()
+
+		if cleaned > 0 {
+			log.Printf("🧹 Limpieza automática: eliminados %d mensajes antiguos", cleaned)
+		}
+	}
+}
+
+// isUsernameAvailable verifica si un nombre de usuario está disponible (método privado)
 func (h *Hub) isUsernameAvailable(username string) bool {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	h.mu.RLock()         // Bloquear lectura del mapa de clientes
+	defer h.mu.RUnlock() // Desbloquear al final de la función
 
 	// Verificar si hay algún cliente conectado con ese nombre EXACTO
 	for client := range h.clients {
@@ -119,26 +154,40 @@ func (h *Hub) registerClient(client *Client) {
 			client.conn.Close()
 		}()
 
-		return // ⭐ IMPORTANTE: No registrar el cliente
+		return // Salir si el nombre ya está en uso
 	}
 
 	// Si llegamos aquí, el nombre está disponible
-	h.mu.Lock()
-	h.clients[client] = true
+	h.mu.Lock()              // Bloquear escritura del mapa de clientes
+	h.clients[client] = true // Registrar cliente en el mapa
 
-	// Actualizar o crear estado del usuario
+	// ⭐ LÓGICA MEJORADA: Determinar si es reconexión o primera vez
 	now := time.Now()
+	var isReconnection bool
+	var lastSeen time.Time
+
 	if userStatus, exists := h.userHistory[client.username]; exists {
+		// Usuario existente - es una reconexión
+		isReconnection = true
+		lastSeen = userStatus.LastSeen
 		userStatus.Connected = true
 		userStatus.ConnectedAt = now
 		userStatus.LastSeen = now
+		userStatus.IsFirstTime = false
+		log.Printf("🔄 Reconexión detectada para '%s', última vez visto: %s",
+			client.username, lastSeen.Format("15:04:05"))
 	} else {
+		// Usuario nuevo - primera vez
+		isReconnection = false
 		h.userHistory[client.username] = &UserStatus{
-			Username:    client.username,
-			Connected:   true,
-			ConnectedAt: now,
-			LastSeen:    now,
+			Username:        client.username,
+			Connected:       true,
+			ConnectedAt:     now,
+			LastSeen:        now,
+			LastMessageSeen: now, // Para nuevos usuarios, empezar desde ahora
+			IsFirstTime:     true,
 		}
+		log.Printf("✨ Nuevo usuario detectado: '%s'", client.username)
 	}
 
 	clientCount := len(h.clients)
@@ -146,7 +195,7 @@ func (h *Hub) registerClient(client *Client) {
 
 	log.Printf("✅ Cliente '%s' conectado exitosamente. Total de clientes: %d", client.username, clientCount)
 
-	// ⭐ Enviar mensaje de éxito al cliente
+	// Enviar mensaje de éxito
 	successMsg := map[string]interface{}{
 		"type":     "connectionSuccess",
 		"message":  "Conectado exitosamente como " + client.username,
@@ -160,13 +209,14 @@ func (h *Hub) registerClient(client *Client) {
 		}
 	}
 
-	// ⭐ IMPORTANTE: NO enviar historial a nuevos usuarios
-	// Solo reciben mensajes desde el momento que se conectan
+	// ⭐ NUEVA FUNCIONALIDAD: Enviar mensajes perdidos solo a reconexiones
+	if isReconnection {
+		h.sendMissedMessages(client, lastSeen)
+	}
 
-	// Enviar lista de usuarios actualizada
-	h.broadcastUserList()
+	h.broadcastUserList() // Enviar lista de usuarios actualizada
 
-	// Enviar mensaje de sistema
+	// Mensaje de sistema
 	joinMsg := NewSystemMessage(client.username + " se ha unido al chat")
 	joinMsg.Type = MessageTypeJoin
 
@@ -175,6 +225,75 @@ func (h *Hub) registerClient(client *Client) {
 	} else {
 		log.Printf("Error serializando mensaje de conexión: %v", err)
 	}
+}
+
+// ⭐ NUEVA FUNCIÓN: Enviar mensajes perdidos a usuario que se reconecta
+func (h *Hub) sendMissedMessages(client *Client, lastSeen time.Time) {
+	h.mu.RLock()
+
+	// Encontrar mensajes enviados después de la última vez que estuvo online
+	var missedMessages []*Message
+	for _, msg := range h.messageHistory {
+		// Solo incluir mensajes normales (no de sistema) enviados después de lastSeen
+		if msg.Type == MessageTypeMessage && msg.Timestamp.After(lastSeen) {
+			// No incluir sus propios mensajes
+			if msg.Username != client.username {
+				missedMessages = append(missedMessages, msg)
+			}
+		}
+	}
+
+	h.mu.RUnlock()
+
+	if len(missedMessages) == 0 {
+		log.Printf("📭 No hay mensajes perdidos para '%s'", client.username)
+		return
+	}
+
+	log.Printf("📬 Enviando %d mensajes perdidos a '%s'", len(missedMessages), client.username)
+
+	// Enviar notificación de mensajes perdidos
+	notificationMsg := map[string]interface{}{
+		"type":    "missedMessagesNotification",
+		"count":   len(missedMessages),
+		"message": "Tienes mensajes perdidos mientras estuviste ausente",
+	}
+
+	if msgBytes, err := json.Marshal(notificationMsg); err == nil {
+		select {
+		case client.send <- msgBytes:
+		default:
+		}
+	}
+
+	// Enviar cada mensaje perdido con un pequeño delay para mejor UX
+	go func() {
+		for i, msg := range missedMessages {
+			if msgBytes, err := json.Marshal(msg); err == nil {
+				select {
+				case client.send <- msgBytes:
+					log.Printf("📤 Mensaje perdido %d/%d enviado a '%s': %.30s...",
+						i+1, len(missedMessages), client.username, msg.Content)
+				default:
+					log.Printf("❌ No se pudo enviar mensaje perdido a '%s'", client.username)
+				}
+
+				// Pequeño delay entre mensajes para mejor UX
+				if i < len(missedMessages)-1 {
+					time.Sleep(50 * time.Millisecond)
+				}
+			}
+		}
+
+		// Actualizar lastMessageSeen después de enviar todos los mensajes
+		h.mu.Lock()
+		if userStatus, exists := h.userHistory[client.username]; exists {
+			userStatus.LastMessageSeen = time.Now()
+		}
+		h.mu.Unlock()
+
+		log.Printf("✅ Todos los mensajes perdidos enviados a '%s'", client.username)
+	}()
 }
 
 // unregisterClient cancela el registro de un cliente del hub
@@ -189,6 +308,8 @@ func (h *Hub) unregisterClient(client *Client) {
 		if userStatus, exists := h.userHistory[client.username]; exists {
 			userStatus.Connected = false
 			userStatus.LastSeen = time.Now()
+			// ⭐ NUEVO: Actualizar último mensaje visto al desconectarse
+			userStatus.LastMessageSeen = time.Now()
 		}
 
 		clientCount := len(h.clients)
@@ -215,8 +336,13 @@ func (h *Hub) unregisterClient(client *Client) {
 
 // broadcastMessage envía un mensaje a todos los clientes conectados
 func (h *Hub) broadcastMessage(message []byte) {
-	// ⭐ AGREGAR MENSAJE AL HISTORIAL PARA MANTENER CONVERSACIÓN
-	h.addToMessageHistory(message)
+	// ⭐ NUEVO: Parsear mensaje para agregarlo al historial si es necesario
+	var msg Message
+	if err := json.Unmarshal(message, &msg); err == nil {
+		if msg.Type == MessageTypeMessage {
+			h.addToMessageHistory(&msg)
+		}
+	}
 
 	h.mu.RLock()
 	clients := make([]*Client, 0, len(h.clients))
@@ -226,7 +352,7 @@ func (h *Hub) broadcastMessage(message []byte) {
 	h.mu.RUnlock()
 
 	// Debug: mostrar qué se está enviando
-	log.Printf("📤 Enviando mensaje a %d clientes", len(clients))
+	log.Printf("Enviando mensaje a %d clientes", len(clients))
 
 	// Enviar mensaje a cada cliente
 	for _, client := range clients {
@@ -244,28 +370,24 @@ func (h *Hub) broadcastMessage(message []byte) {
 	}
 }
 
-// ⭐ NUEVO: addToMessageHistory agrega un mensaje al historial
-func (h *Hub) addToMessageHistory(messageBytes []byte) {
-	var msg Message
-	if err := json.Unmarshal(messageBytes, &msg); err != nil {
-		log.Printf("❌ Error parseando mensaje para historial: %v", err)
-		return
+// ⭐ NUEVA FUNCIÓN: Agregar mensaje al historial persistente
+func (h *Hub) addToMessageHistory(msg *Message) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Agregar mensaje al historial
+	h.messageHistory = append(h.messageHistory, msg)
+
+	// Mantener solo los últimos N mensajes
+	if len(h.messageHistory) > h.maxHistorySize {
+		// Eliminar mensajes más antiguos
+		excess := len(h.messageHistory) - h.maxHistorySize
+		h.messageHistory = h.messageHistory[excess:]
+		log.Printf("🗑️ Historial recortado: eliminados %d mensajes antiguos", excess)
 	}
 
-	// Solo agregar mensajes de chat al historial (no mensajes del sistema de conexión/desconexión)
-	if msg.Type == MessageTypeMessage {
-		h.mu.Lock()
-		h.messageHistory = append(h.messageHistory, &msg)
-
-		// Mantener solo los últimos N mensajes
-		if len(h.messageHistory) > h.maxHistorySize {
-			// Eliminar el mensaje más antiguo
-			h.messageHistory = h.messageHistory[1:]
-		}
-		h.mu.Unlock()
-
-		log.Printf("📜 Mensaje agregado al historial. Total: %d mensajes", len(h.messageHistory))
-	}
+	log.Printf("💾 Mensaje guardado en historial persistente. Total: %d/%d",
+		len(h.messageHistory), h.maxHistorySize)
 }
 
 // broadcastUserList envía la lista actualizada de usuarios a todos los clientes
@@ -275,10 +397,12 @@ func (h *Hub) broadcastUserList() {
 	for _, userStatus := range h.userHistory {
 		// Crear copia para evitar problemas de concurrencia
 		userCopy := &UserStatus{
-			Username:    userStatus.Username,
-			Connected:   userStatus.Connected,
-			LastSeen:    userStatus.LastSeen,
-			ConnectedAt: userStatus.ConnectedAt,
+			Username:        userStatus.Username,
+			Connected:       userStatus.Connected,
+			LastSeen:        userStatus.LastSeen,
+			ConnectedAt:     userStatus.ConnectedAt,
+			LastMessageSeen: userStatus.LastMessageSeen,
+			IsFirstTime:     userStatus.IsFirstTime,
 		}
 		users = append(users, userCopy)
 	}
@@ -290,12 +414,12 @@ func (h *Hub) broadcastUserList() {
 		"users": users,
 	}
 
-	log.Printf("👥 Enviando lista de %d usuarios a todos los clientes", len(users))
+	log.Printf("Enviando lista de %d usuarios a todos los clientes", len(users))
 
 	if msgBytes, err := json.Marshal(userListMsg); err == nil {
 		h.broadcastMessage(msgBytes)
 	} else {
-		log.Printf("❌ Error serializando lista de usuarios: %v", err)
+		log.Printf("Error serializando lista de usuarios: %v", err)
 	}
 }
 
@@ -333,13 +457,35 @@ func (h *Hub) GetUserHistory() map[string]*UserStatus {
 	return history
 }
 
-// ⭐ NUEVO: GetMessageHistory devuelve el historial de mensajes (para debugging)
+// GetMessageHistory devuelve el historial de mensajes (para debugging y tests)
 func (h *Hub) GetMessageHistory() []*Message {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	// Crear copia del slice
+	// Crear copia del slice para evitar problemas de concurrencia
 	history := make([]*Message, len(h.messageHistory))
 	copy(history, h.messageHistory)
 	return history
+}
+
+// ⭐ NUEVA FUNCIÓN: Obtener estadísticas del historial de mensajes
+func (h *Hub) GetMessageHistoryStats() map[string]interface{} {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	stats := map[string]interface{}{
+		"totalMessages": len(h.messageHistory),
+		"maxSize":       h.maxHistorySize,
+		"maxAge":        h.maxHistoryAge.String(),
+	}
+
+	if len(h.messageHistory) > 0 {
+		oldest := h.messageHistory[0].Timestamp
+		newest := h.messageHistory[len(h.messageHistory)-1].Timestamp
+		stats["oldestMessage"] = oldest
+		stats["newestMessage"] = newest
+		stats["timeSpan"] = newest.Sub(oldest).String()
+	}
+
+	return stats
 }

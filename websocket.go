@@ -76,8 +76,8 @@ func serveWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	client.hub.register <- client
 
 	// Iniciar las goroutines
-	go client.writePump()
-	go client.readPump()
+	go client.writePump() // Envío de mensajes
+	go client.readPump()  // Recepción de mensajes
 
 	log.Printf("✅ Cliente '%s' procesado desde %s", username, r.RemoteAddr)
 }

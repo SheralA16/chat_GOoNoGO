@@ -51,7 +51,7 @@ type IncomingMessage struct {
 	Image    *ImageData `json:"image,omitempty"`
 }
 
-// readPump bombea mensajes desde la conexión WebSocket al hub
+// readPump LEÉ mensajes desde la conexión WebSocket al hub
 func (c *Client) readPump() {
 	defer func() {
 		c.hub.unregister <- c
@@ -100,7 +100,7 @@ func (c *Client) readPump() {
 				c.sendErrorMessage("Imagen inválida. Solo se permiten imágenes de hasta 5MB.")
 				continue
 			}
-			log.Printf("🖼️ Imagen válida recibida de '%s': %s (%d bytes)", 
+			log.Printf("🖼️ Imagen válida recibida de '%s': %s (%d bytes)",
 				c.username, incomingMsg.Image.Name, incomingMsg.Image.Size)
 		}
 
@@ -114,7 +114,7 @@ func (c *Client) readPump() {
 		var msg *Message
 		if incomingMsg.HasImage && incomingMsg.Image != nil {
 			msg = NewMessageWithImage(c.username, incomingMsg.Content, incomingMsg.Image)
-			log.Printf("💬🖼️ Mensaje con imagen de '%s': texto='%s', imagen='%s'", 
+			log.Printf("💬🖼️ Mensaje con imagen de '%s': texto='%s', imagen='%s'",
 				c.username, incomingMsg.Content, incomingMsg.Image.Name)
 		} else {
 			msg = NewMessage(c.username, incomingMsg.Content)
@@ -138,7 +138,7 @@ func (c *Client) readPump() {
 	}
 }
 
-// isValidImage valida que los datos de imagen sean seguros
+// isValidImage VALIDA que los datos de imagen sean seguros
 func (c *Client) isValidImage(image *ImageData) bool {
 	// Validar tamaño máximo (5MB)
 	const maxImageSize = 5 * 1024 * 1024
@@ -148,10 +148,10 @@ func (c *Client) isValidImage(image *ImageData) bool {
 
 	// Validar que sea un tipo MIME de imagen válido
 	validTypes := []string{
-		"image/jpeg", "image/jpg", "image/png", "image/gif", 
+		"image/jpeg", "image/jpg", "image/png", "image/gif",
 		"image/webp", "image/bmp", "image/svg+xml",
 	}
-	
+
 	isValidType := false
 	for _, validType := range validTypes {
 		if image.Type == validType {
@@ -159,7 +159,7 @@ func (c *Client) isValidImage(image *ImageData) bool {
 			break
 		}
 	}
-	
+
 	if !isValidType {
 		return false
 	}
@@ -195,7 +195,7 @@ func (c *Client) sendErrorMessage(errorText string) {
 	}
 }
 
-// writePump bombea mensajes desde el hub hacia la conexión WebSocket
+// writePump ENVIA mensajes desde el hub hacia la conexión WebSocket
 func (c *Client) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {

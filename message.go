@@ -12,12 +12,12 @@ type ImageData struct {
 
 // Message representa un mensaje de chat
 type Message struct {
-	Username  string     `json:"username"`
-	Content   string     `json:"content"`
-	Timestamp time.Time  `json:"timestamp"`
-	Type      string     `json:"type"`      // "message", "system", "join", "leave"
+	Username  string     `json:"username"`        // Quién envió
+	Content   string     `json:"content"`         // Texto del mensaje
+	Timestamp time.Time  `json:"timestamp"`       // Cuándo se envió
+	Type      string     `json:"type"`            // Tipo: message/system/join/leave
 	Image     *ImageData `json:"image,omitempty"` // Datos de imagen opcionales
-	HasImage  bool       `json:"hasImage"`  // Indica si el mensaje tiene imagen
+	HasImage  bool       `json:"hasImage"`        // Indica si el mensaje tiene imagen
 }
 
 // MessageType define los tipos de mensajes
@@ -27,6 +27,8 @@ const (
 	MessageTypeJoin    = "join"
 	MessageTypeLeave   = "leave"
 )
+
+//Funciones para crear mensajes:
 
 // NewMessage crea un nuevo mensaje de chat
 func NewMessage(username, content string) *Message {
